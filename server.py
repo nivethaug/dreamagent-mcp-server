@@ -143,6 +143,7 @@ def dreamagent_list_projects(status: str | None = None) -> str:
         status: optional filter — one of creating/ready/failed.
     """
     try:
+        _bind_request_token()
         projects = client().list_projects(status)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
