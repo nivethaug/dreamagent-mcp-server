@@ -36,6 +36,9 @@ from fastmcp.server.dependencies import get_http_headers
 from auth import AuthManager, AuthError
 from dreamagent_client import DreamAgentClient, DreamAgentAPIError, PROJECT_TYPES
 from dreamagent_client import set_request_token, get_request_token
+import oauth as oauth_as
+
+register_oauth = oauth_as.register_oauth_routes
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -71,6 +74,10 @@ mcp = FastMCP(
     ),
 )
 
+# OAuth 2.1 authorization server routes (ChatGPT/Claude "Connect" flow):
+# /register (DCR), /authorize, /token, and the /.well-known discovery docs.
+register_oauth(mcp)
+
 _client: DreamAgentClient | None = None
 _local_auth: AuthManager | None = None  # set only when env credentials exist
 
@@ -105,33 +112,29 @@ def _bind_request_token() -> None:
     """Bind the incoming MCP request's credential (hosted mode).
 
     Called at the top of every tool. Accepted credential sources:
-      1. Authorization: Bearer <da_...> header (OAuth-style clients)
+      1. Authorization: Bearer <da_...> header — OAuth clients (ChatGPT
+         Connect flow, Claude connectors). NOTE: fastmcp's get_http_headers()
+         STRIPS the Authorization header, so we read it from the raw
+         starlette request instead.
       2. ?key=<da_...> URL query parameter — ChatGPT custom connectors with
          "No authentication" don't send headers, so the key rides in the
          server URL: https://mcp.dreamagent.cloud/mcp?key=da_...
     If neither is present and no env credentials exist, tools raise a
     friendly connect-your-account error on first API use.
     """
-    try:
-        headers = get_http_headers() or {}
-    except Exception:
-        headers = {}
-    auth_header = headers.get("authorization") or headers.get("Authorization") or ""
     token = None
-    parts = auth_header.split()
-    if len(parts) == 2 and parts[0].lower() == "bearer":
-        token = parts[1]
-
-    # Fallback: ?key= query parameter from the MCP endpoint URL.
-    if not token:
-        try:
-            from fastmcp.server.dependencies import get_http_request
-            request = get_http_request()
-            if request is not None:
+    try:
+        from fastmcp.server.dependencies import get_http_request
+        request = get_http_request()
+        if request is not None:
+            auth_header = request.headers.get("authorization") or ""
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0].lower() == "bearer":
+                token = parts[1]
+            if not token:
                 token = request.query_params.get("key") or None
-        except Exception:
-            pass
-
+    except Exception:
+        pass
     set_request_token(token)
 
 
