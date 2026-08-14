@@ -9,6 +9,7 @@ server-side ownership checks apply unchanged.
 import json
 import logging
 import threading
+from contextvars import ContextVar
 
 import httpx
 
@@ -20,6 +21,22 @@ logger = logging.getLogger("dreamagent.mcp.client")
 # but each individual HTTP call here stays short.
 DEFAULT_TIMEOUT = 30.0
 CHAT_STREAM_TIMEOUT = 1800.0  # background SSE consumer may run ~30 min
+
+# Per-request token (hosted mode): set from the incoming MCP request's
+# Authorization header by server.py before each tool call. Takes priority
+# over the env-credential AuthManager.
+_current_request_token: ContextVar[str | None] = ContextVar(
+    "dreamagent_request_token", default=None)
+
+
+def set_request_token(token: str | None) -> None:
+    """Bind the incoming request's Bearer token (hosted mode)."""
+    _current_request_token.set(token)
+
+
+def get_request_token() -> str | None:
+    return _current_request_token.get()
+
 
 # Project type name -> type_id (from project_types seed, verified in codebase)
 PROJECT_TYPES = {
@@ -53,7 +70,14 @@ class DreamAgentClient:
 
     def _request(self, method: str, path: str, *, json_body=None, params=None,
                  timeout: float = DEFAULT_TIMEOUT, _retried: bool = False) -> httpx.Response:
-        token = self.auth.get_token()
+        # Hosted mode: per-request token from the incoming MCP Authorization
+        # header (the user's DreamAgent API key). Local mode: env-credential
+        # login token.
+        request_token = get_request_token()
+        if request_token:
+            token = request_token
+        else:
+            token = self.auth.get_token()
         headers = {"Authorization": f"Bearer {token}"}
         try:
             with httpx.Client(timeout=timeout) as client:
@@ -65,7 +89,13 @@ class DreamAgentClient:
             raise DreamAgentAPIError(f"Cannot reach DreamAgent API: {e}", 503)
 
         if resp.status_code == 401 and not _retried:
-            # Token expired/revoked — re-login once and retry.
+            if request_token:
+                # Hosted mode: the user's API key was rejected — no re-login possible.
+                raise DreamAgentAPIError(
+                    "DreamAgent rejected your API key (401). It may have been revoked — "
+                    "create a new key in dreamagent.cloud Settings → Connect to ChatGPT "
+                    "and update it in your ChatGPT connector settings.", 401)
+            # Local mode: token expired/revoked — re-login once and retry.
             self.auth.invalidate()
             return self._request(method, path, json_body=json_body, params=params,
                                  timeout=timeout, _retried=True)
@@ -196,7 +226,9 @@ class DreamAgentClient:
                 "acp_mode": True,
                 "mode": "dream",
             }
-            token = self.auth.get_token()
+            # Snapshot the request token (contextvar) for the background thread.
+            request_token = get_request_token()
+            token = request_token or self.auth.get_token()
             headers = {"Authorization": f"Bearer {token}"}
             collected: list[str] = []
             error: str | None = None
@@ -204,7 +236,7 @@ class DreamAgentClient:
                 with httpx.Client(timeout=CHAT_STREAM_TIMEOUT) as client:
                     with client.stream("POST", f"{self.base_url}/chat/stream",
                                        headers=headers, json=payload) as resp:
-                        if resp.status_code == 401:
+                        if resp.status_code == 401 and not request_token:
                             self.auth.invalidate()
                             token = self.auth.get_token()
                             headers = {"Authorization": f"Bearer {token}"}

@@ -31,9 +31,11 @@ except ImportError:
     pass
 
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_headers
 
 from auth import AuthManager, AuthError
 from dreamagent_client import DreamAgentClient, DreamAgentAPIError, PROJECT_TYPES
+from dreamagent_client import set_request_token, get_request_token
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -51,17 +53,62 @@ mcp = FastMCP(
 )
 
 _client: DreamAgentClient | None = None
+_local_auth: AuthManager | None = None  # set only when env credentials exist
 
 
 def client() -> DreamAgentClient:
-    global _client
-    if _client is None:
-        auth = AuthManager.from_env()
-        _client = DreamAgentClient(auth)
+    """Return the shared client.
+
+    Hosted mode (default): no DREAMAGENT_EMAIL/PASSWORD — every tool call
+    authenticates with the Bearer token from the incoming MCP request
+    (the user's DreamAgent API key, set by ChatGPT's connector settings).
+    Local mode: env credentials log in once and the token is cached.
+    """
+    global _client, _local_auth
+    if _local_auth is None and _client is None:
+        # First call: try env credentials; fall back to hosted (header) mode.
+        import os
+        if os.getenv("DREAMAGENT_EMAIL") and os.getenv("DREAMAGENT_PASSWORD"):
+            try:
+                _local_auth = AuthManager.from_env()
+            except AuthError:
+                _local_auth = None
+        if _client is None:
+            auth = _local_auth or AuthManager(
+                api_url=os.getenv("DREAMAGENT_API_URL", "https://api.dreamagent.cloud"),
+                email="", password="",
+            )
+            _client = DreamAgentClient(auth)
     return _client
 
 
+def _bind_request_token() -> None:
+    """Bind the incoming MCP request's Authorization header (hosted mode).
+
+    Called at the top of every tool. If the caller sent no Bearer token and
+    no env credentials exist, tools raise a friendly connect-your-account
+    error on first API use.
+    """
+    try:
+        headers = get_http_headers() or {}
+    except Exception:
+        headers = {}
+    auth_header = headers.get("authorization") or headers.get("Authorization") or ""
+    token = None
+    parts = auth_header.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        token = parts[1]
+    set_request_token(token)
+
+
 def _err(e: Exception) -> str:
+    # Hosted mode with no token at all: give the connect instructions.
+    if isinstance(e, AuthError) and not get_request_token() and _local_auth is None:
+        return (
+            "ERROR: No DreamAgent account connected. Add your DreamAgent API key "
+            "to the connector settings in ChatGPT (create one at dreamagent.cloud → "
+            "Settings → Connect to ChatGPT)."
+        )
     return f"ERROR: {e}"
 
 
@@ -128,6 +175,7 @@ def dreamagent_create_project(
         env_vars: optional dict of extra environment variables for the project.
     """
     try:
+        _bind_request_token()
         p = client().create_project(name, project_type, bot_token, description, env_vars)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
@@ -152,6 +200,7 @@ def dreamagent_get_project_status(project_id: int) -> str:
         project_id: numeric project id (from dreamagent_list_projects / create).
     """
     try:
+        _bind_request_token()
         s = client().get_project_status(project_id)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
@@ -188,7 +237,9 @@ def dreamagent_chat(project_id: int, message: str) -> str:
         message: natural-language instruction for the agent.
     """
     try:
+        _bind_request_token()
         c = client()
+
         session = c.ensure_session(project_id)
         session_key = session["session_key"]
         c.submit_chat(session_key, message)
@@ -218,7 +269,9 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
         after: the 'next_after' cursor returned by the previous poll (0 first time).
     """
     try:
+        _bind_request_token()
         c = client()
+
         status = c.chat_status(session_key)
         chunks = c.chat_chunks(session_key, after)
         local = c.local_chat_result(session_key)
@@ -270,6 +323,7 @@ def dreamagent_cancel_chat(session_key: str) -> str:
         session_key: the session_key returned by dreamagent_chat.
     """
     try:
+        _bind_request_token()
         r = client().cancel_chat(session_key)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
@@ -288,13 +342,20 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=int(os.getenv("MCP_PORT", "8800")))
     args = parser.parse_args()
 
-    # Fail fast with a readable error if credentials are missing.
-    try:
-        client().auth.get_token()
-        logger.info("DreamAgent account connected (user: %s)", client().auth.user.get("email"))
-    except AuthError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 2
+    # Local mode: env credentials exist -> verify them once at startup.
+    # Hosted mode (no env credentials): every request authenticates with the
+    # caller's DreamAgent API key from the Authorization header.
+    if os.getenv("DREAMAGENT_EMAIL") and os.getenv("DREAMAGENT_PASSWORD"):
+        try:
+            client().auth.get_token()
+            logger.info("DreamAgent account connected (user: %s)",
+                        client().auth.user.get("email"))
+        except AuthError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 2
+    else:
+        logger.info("Hosted mode: authenticating per-request from the "
+                    "Authorization header (DreamAgent API keys)")
 
     if args.http:
         mcp.run(transport="http", host=args.host, port=args.port)
