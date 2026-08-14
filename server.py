@@ -250,28 +250,48 @@ def dreamagent_get_project_status(project_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def dreamagent_chat(project_id: int, message: str) -> str:
+def dreamagent_chat(project_id: int, message: str,
+                    session_key: str | None = None, new_session: bool = False) -> str:
     """Send a build/edit/debug instruction to the project's DreamAgent AI
     agent. The agent edits the code, rebuilds and redeploys the project, and
     auto-commits to git. Example messages: 'add a /weather command that
     replies with the weather for a city', 'fix the login bug', 'change the
     site theme to dark'.
 
-    This is ASYNC and consumes AI credits: it returns immediately with a
-    session_key — then poll dreamagent_get_chat_status(session_key) until
-    the run completes (typically 1-10 minutes).
+    SESSIONS: by default this uses the project's dedicated 'ChatGPT' session
+    (created on first use, full conversation history kept). Pass
+    session_key (from dreamagent_list_sessions) to continue a specific
+    session, or new_session=true to start a fresh one.
+
+    This is ASYNC and consumes AI credits. Immediate rejections (no credits,
+    session locked, edit already running) are returned as errors right away;
+    otherwise poll dreamagent_get_chat_status(session_key) until done=true
+    (typically 1-10 minutes).
 
     Args:
         project_id: the project to edit.
         message: natural-language instruction for the agent.
+        session_key: optional — continue this specific session instead of the
+            default 'ChatGPT' one.
+        new_session: optional — start a brand-new session for this edit.
     """
     try:
         _bind_request_token()
         c = client()
 
-        session = c.ensure_session(project_id)
-        session_key = session["session_key"]
-        c.submit_chat(session_key, message)
+        if session_key:
+            pass  # continue the requested session (ownership checked server-side)
+        elif new_session:
+            session = c.create_session(project_id, label="ChatGPT")
+            session_key = session["session_key"]
+        else:
+            session = c.ensure_chatgpt_session(project_id)
+            session_key = session["session_key"]
+
+        early_error = c.submit_chat(session_key, message)
+        if early_error:
+            return (f"ERROR: the edit was NOT started: {early_error}\n"
+                    f"(session_key={session_key})")
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
 
@@ -281,6 +301,74 @@ def dreamagent_chat(project_id: int, message: str) -> str:
         f"session_key=\"{session_key}\") — pass back the returned 'next_after' "
         f"cursor each time — until done=true."
     )
+
+
+# ---------------------------------------------------------------------------
+# Session management (mirrors the Telegram/Discord bot integrations)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def dreamagent_list_sessions(project_id: int) -> str:
+    """List the chat sessions of a project (conversation threads with the
+    project's AI agent). Use session_keys with dreamagent_chat to continue a
+    specific thread.
+
+    Args:
+        project_id: the project.
+    """
+    try:
+        _bind_request_token()
+        sessions = client().list_sessions(project_id)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+
+    if not sessions:
+        return f"No sessions yet on project {project_id}. dreamagent_chat will create one."
+    lines = []
+    for s in sessions[:15]:
+        state = " [archived]" if s.get("archived") else ""
+        lines.append(
+            f"#{s.get('id')} \"{s.get('label') or 'untitled'}\"{state} — "
+            f"session_key={s.get('session_key')}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
+    """Create a new chat session (conversation thread) on a project. Use when
+    starting a distinct topic so it doesn't mix with earlier history.
+
+    Args:
+        project_id: the project.
+        label: optional name for the session (default 'ChatGPT').
+    """
+    try:
+        _bind_request_token()
+        s = client().create_session(project_id, label=label[:60])
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    return (f"Session #{s.get('id')} \"{label}\" created — "
+            f"session_key={s.get('session_key')}. Pass it to dreamagent_chat "
+            f"to use this thread.")
+
+
+@mcp.tool()
+def dreamagent_release_project_lock(project_id: int) -> str:
+    """Force-release a project's chat lock (last resort when edits fail with
+    'session locked' and the locking session is stale/closed). WARNING: if
+    the user has the project chat open in the DreamAgent dashboard, this
+    interrupts that session — confirm with the user first.
+
+    Args:
+        project_id: the project to unlock.
+    """
+    try:
+        _bind_request_token()
+        r = client().release_project_lock(project_id)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    return f"Lock released for project {project_id}: {r}"
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,9 @@ server-side ownership checks apply unchanged.
 import json
 import logging
 import threading
+import time
 from contextvars import ContextVar
+from typing import Optional
 
 import httpx
 
@@ -206,9 +208,36 @@ class DreamAgentClient:
             return active[0]
         return self.create_session(project_id, label="ChatGPT")
 
-    def submit_chat(self, session_key: str, message: str) -> None:
+    def ensure_chatgpt_session(self, project_id: int) -> dict:
+        """Reuse OUR OWN session for this project — never the user's dashboard
+        session (which would hit the project lock → 423).
+
+        Mirrors the platform's Telegram/Discord bot integrations: each client
+        manages its own labeled session. Finds the latest non-archived session
+        labeled 'ChatGPT', else creates one.
         """
-        Fire POST /chat/stream in a background thread and return immediately.
+        sessions = self.list_sessions(project_id)
+        ours = [s for s in sessions
+                if not s.get("archived") and (s.get("label") or "").strip().lower() == "chatgpt"]
+        if ours:
+            return ours[0]
+        return self.create_session(project_id, label="ChatGPT")
+
+    def release_project_lock(self, project_id: int) -> dict:
+        """Force-release the project's chat lock (owner-scoped server-side)."""
+        resp = self._request("DELETE", f"/projects/{project_id}/lock")
+        if resp.status_code not in (200, 201):
+            raise self._friendly_error(resp, f"Releasing lock on project {project_id}")
+        return resp.json()
+
+    def submit_chat(self, session_key: str, message: str, wait_seconds: float = 3.0) -> Optional[str]:
+        """
+        Fire POST /chat/stream in a background thread.
+
+        Waits up to `wait_seconds` for an IMMEDIATE failure (401/402/409/423
+        rejected before the run starts) and returns the error string so the
+        tool can surface it synchronously. Returns None if the run started
+        (or is still connecting) — poll chat_status/local_chat_result after.
 
         The thread keeps the SSE connection open (driving the run server-side)
         and records the final result locally when the stream ends. Progress is
@@ -254,13 +283,18 @@ class DreamAgentClient:
                                 detail = json.loads(body).get("detail")
                                 if isinstance(detail, dict):
                                     msg = detail.get("message") or detail.get("error") or body
-                                    if resp.status_code == 402:
-                                        msg += (" — Insufficient AI credits. Top up at "
-                                                "dreamagent.cloud/billing.")
                                     body = msg
                             except Exception:
                                 pass
-                            error = f"HTTP {resp.status_code}: {body}"
+                            hints = {
+                                402: " — Insufficient AI credits. Top up at dreamagent.cloud/billing.",
+                                409: " — An edit is already running in this session. Poll dreamagent_get_chat_status instead of submitting again.",
+                                423: (" — Session locked: another chat session owns this project "
+                                      "(likely open in the DreamAgent dashboard). Close it there, "
+                                      "or submit with new_session=true / a different session_key."),
+                            }
+                            hint = hints.get(resp.status_code, "")
+                            error = f"HTTP {resp.status_code}: {body}{hint}"
                         else:
                             self._consume_sse(resp, collected)
             except httpx.HTTPError as e:
@@ -278,7 +312,21 @@ class DreamAgentClient:
                     "text": "".join(collected)[-8000:],
                 }
 
-        threading.Thread(target=_worker, daemon=True, name=f"chat-{session_key[:8]}").start()
+        thread = threading.Thread(target=_worker, daemon=True, name=f"chat-{session_key[:8]}")
+        thread.start()
+
+        # Wait briefly for an immediate failure (rejected before the run
+        # started: 401/402/409/423) so the tool can report it synchronously
+        # instead of a false "submitted".
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            r = self.local_chat_result(session_key)
+            if r is not None:
+                if r.get("error") and not r.get("text"):
+                    return r["error"]
+                return None  # finished cleanly/immediately
+            time.sleep(0.1)
+        return None
 
     def _consume_sse(self, resp, collected: list[str]) -> None:
         """Best-effort SSE consumption: keep connection alive, collect text."""
