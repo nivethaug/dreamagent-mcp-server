@@ -83,11 +83,15 @@ def client() -> DreamAgentClient:
 
 
 def _bind_request_token() -> None:
-    """Bind the incoming MCP request's Authorization header (hosted mode).
+    """Bind the incoming MCP request's credential (hosted mode).
 
-    Called at the top of every tool. If the caller sent no Bearer token and
-    no env credentials exist, tools raise a friendly connect-your-account
-    error on first API use.
+    Called at the top of every tool. Accepted credential sources:
+      1. Authorization: Bearer <da_...> header (OAuth-style clients)
+      2. ?key=<da_...> URL query parameter — ChatGPT custom connectors with
+         "No authentication" don't send headers, so the key rides in the
+         server URL: https://mcp.dreamagent.cloud/mcp?key=da_...
+    If neither is present and no env credentials exist, tools raise a
+    friendly connect-your-account error on first API use.
     """
     try:
         headers = get_http_headers() or {}
@@ -98,6 +102,17 @@ def _bind_request_token() -> None:
     parts = auth_header.split()
     if len(parts) == 2 and parts[0].lower() == "bearer":
         token = parts[1]
+
+    # Fallback: ?key= query parameter from the MCP endpoint URL.
+    if not token:
+        try:
+            from fastmcp.server.dependencies import get_http_request
+            request = get_http_request()
+            if request is not None:
+                token = request.query_params.get("key") or None
+        except Exception:
+            pass
+
     set_request_token(token)
 
 
