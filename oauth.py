@@ -262,7 +262,9 @@ def _validate_authorize_params(q) -> tuple[Optional[dict], Optional[str]]:
     redirect_uri = q.get("redirect_uri")
     response_type = q.get("response_type")
     code_challenge = q.get("code_challenge")
-    challenge_method = q.get("code_challenge_method", "S256")
+    # NB: `or` (not dict-default) — callers may pass the key with value None
+    # (form submissions don't include the method field).
+    challenge_method = q.get("code_challenge_method") or "S256"
 
     client = STORE.clients.get(client_id or "")
     if not client:
@@ -277,9 +279,11 @@ def _validate_authorize_params(q) -> tuple[Optional[dict], Optional[str]]:
     return {
         "client_id": client_id,
         "client_name": client["name"],
+        "response_type": "code",          # echoed into the form hidden fields
         "redirect_uri": redirect_uri,
         "state": q.get("state"),
         "code_challenge": code_challenge,
+        "code_challenge_method": "S256",  # echoed into the form hidden fields
     }, None
 
 
