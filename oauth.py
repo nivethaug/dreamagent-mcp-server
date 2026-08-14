@@ -47,6 +47,9 @@ logger = logging.getLogger("dreamagent.mcp.oauth")
 
 OAUTH_BASE_URL = os.getenv("OAUTH_BASE_URL", "https://mcp.dreamagent.cloud")  # issuer
 DREAMAGENT_API = os.getenv("DREAMAGENT_API_URL", "https://api.dreamagent.cloud")
+# Same Google OAuth client ID the backend uses for /auth/google (optional —
+# when unset the authorize page shows email/password only).
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 
 # Durable client registry — survives restarts so ChatGPT/Claude connectors
 # don't have to re-register after every deploy. (Auth codes stay in-memory:
@@ -132,6 +135,29 @@ async def _dreamagent_login(email: str, password: str) -> Optional[dict]:
             )
     except httpx.HTTPError as e:
         logger.warning("oauth login call failed: %s", e)
+        return None
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
+    if not data.get("token"):
+        return None
+    return data
+
+
+async def _dreamagent_google_login(credential: str) -> Optional[dict]:
+    """Verify a Google ID token via the backend's POST /auth/google.
+
+    The backend verifies the token against GOOGLE_CLIENT_ID and returns a
+    DreamAgent session token (creating the user if it's their first login).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{DREAMAGENT_API}/auth/google",
+                json={"credential": credential},
+            )
+    except httpx.HTTPError as e:
+        logger.warning("oauth google login call failed: %s", e)
         return None
     if resp.status_code != 200:
         return None
@@ -255,6 +281,10 @@ _AUTHORIZE_FORM = """<!doctype html>
       font-size: 14px; cursor: pointer; }}
   .err {{ color: #f87171; font-size: 13px; margin-top: 12px; white-space: pre-line; }}
   .foot {{ color: #6b7280; font-size: 11px; margin-top: 16px; text-align: center; }}
+  .divider {{ display: flex; align-items: center; gap: 10px; margin: 18px 0 4px;
+             color: #6b7280; font-size: 12px; }}
+  .divider::before, .divider::after {{ content: ""; flex: 1; height: 1px; background: #2c3242; }}
+  #gbtn {{ margin-top: 14px; display: flex; justify-content: center; min-height: 40px; }}
 </style></head><body>
 <div class="card">
   <h1>DreamAgent</h1>
@@ -265,16 +295,39 @@ _AUTHORIZE_FORM = """<!doctype html>
     <li>Uses your plan's AI credits</li>
   </ul>
   {hidden}
+  <input type="hidden" name="google_credential" id="google_cred" value="">
+  {google_block}
+  <div class="divider">or with email</div>
   <label for="email">DreamAgent email</label>
-  <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+  <input id="email" name="email" type="email" autocomplete="username" autofocus>
   <label for="password">Password</label>
-  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <input id="password" name="password" type="password" autocomplete="current-password">
   {error_html}
   <button type="submit">Sign in &amp; Connect</button>
   <p class="foot">A revocable DreamAgent API key will be created for this connection.<br>
      Manage keys anytime in DreamAgent &rarr; Settings.</p>
 </div>
+<script>
+function dreamagentOnGoogle(response) {{
+  document.getElementById('google_cred').value = response.credential;
+  document.getElementById('oauth-form').submit();
+}}
+</script>
 </body></html>"""
+
+_GOOGLE_BLOCK = """
+<div id="gbtn">
+  <div id="g_id_onload"
+       data-client_id="{client_id}"
+       data-callback="dreamagentOnGoogle"
+       data-auto_prompt="false">
+  </div>
+  <div class="g_id_signin" data-type="standard" data-size="large"
+       data-theme="filled_black" data-text="signin_with"
+       data-shape="pill"></div>
+</div>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+"""
 
 
 def _authorize_page(client_name: str, fields: dict, error: Optional[str]) -> str:
@@ -282,11 +335,15 @@ def _authorize_page(client_name: str, fields: dict, error: Optional[str]) -> str
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in fields.items() if v is not None
     )
-    return "<form method=\"post\" action=\"/authorize\">" + _AUTHORIZE_FORM.format(
-        client_name=html.escape(client_name),
-        hidden=hidden,
-        error_html=f'<p class="err">{html.escape(error)}</p>' if error else "",
-    ) + "</form>"
+    google_block = _GOOGLE_BLOCK.format(client_id=html.escape(GOOGLE_CLIENT_ID)) \
+        if GOOGLE_CLIENT_ID else ""
+    return ("<form method=\"post\" action=\"/authorize\" id=\"oauth-form\">"
+            + _AUTHORIZE_FORM.format(
+                client_name=html.escape(client_name),
+                hidden=hidden,
+                google_block=google_block,
+                error_html=f'<p class="err">{html.escape(error)}</p>' if error else "",
+            ) + "</form>")
 
 
 def _validate_authorize_params(q) -> tuple[Optional[dict], Optional[str]]:
@@ -331,7 +388,8 @@ async def authorize_post(request: Request) -> Response:
     form = await request.form()
     q = {k: form.get(k) for k in (
         "client_id", "redirect_uri", "response_type", "state",
-        "code_challenge", "code_challenge_method", "email", "password")}
+        "code_challenge", "code_challenge_method", "email", "password",
+        "google_credential")}
     fields, err = _validate_authorize_params(q)
     if not fields:
         return HTMLResponse(_authorize_page("ChatGPT", {}, err), status_code=400)
@@ -346,18 +404,30 @@ async def authorize_post(request: Request) -> Response:
         return RedirectResponse(f"{redirect_uri}{sep}error=access_denied", status_code=302)
     _record_attempt(ip)
 
+    google_credential = (q.get("google_credential") or "").strip()
     email = (q.get("email") or "").strip()
     password = q.get("password") or ""
-    if not email or not password:
-        return HTMLResponse(_authorize_page(
-            fields["client_name"], fields, "Enter your email and password."))
 
-    login = await _dreamagent_login(email, password)
-    if not login:
-        logger.info("oauth: failed login for %s from %s", email[:3] + "***", ip)
+    login = None
+    if google_credential:
+        # Google Sign-In path (users without a DreamAgent password)
+        login = await _dreamagent_google_login(google_credential)
+        if not login:
+            logger.info("oauth: failed google login from %s", ip)
+            return HTMLResponse(_authorize_page(
+                fields["client_name"], fields,
+                "Google sign-in failed. Please try again."))
+    elif email and password:
+        login = await _dreamagent_login(email, password)
+        if not login:
+            logger.info("oauth: failed login for %s from %s", email[:3] + "***", ip)
+            return HTMLResponse(_authorize_page(
+                fields["client_name"], fields,
+                "Invalid email or password (or email not verified)."))
+    else:
         return HTMLResponse(_authorize_page(
             fields["client_name"], fields,
-            "Invalid email or password (or email not verified)."))
+            "Sign in with Google, or enter your email and password."))
 
     da_key = await _create_api_key(login["token"])
     if not da_key:
