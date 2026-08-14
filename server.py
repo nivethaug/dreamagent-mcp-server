@@ -311,7 +311,11 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
         err = local.get("error")
         final = (local.get("text") or "").strip()
         if err:
-            parts.append(f"done=true (stream error: {err}; server-side run may still have finished)")
+            if err.startswith("HTTP 4"):
+                # 4xx = rejected before the run started (e.g. 402 no credits)
+                parts.append(f"done=true — the edit was NOT started: {err}")
+            else:
+                parts.append(f"done=true (stream error: {err}; server-side run may still have finished)")
         elif final:
             parts.append("done=true. Final agent output (tail):\n" + final[-3000:])
         else:

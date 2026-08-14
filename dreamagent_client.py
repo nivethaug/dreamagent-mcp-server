@@ -218,7 +218,12 @@ class DreamAgentClient:
         with self._chat_lock:
             self.chat_results.pop(session_key, None)
 
-        def _worker():
+        # Snapshot the token HERE (calling thread): background threads start
+        # with an empty contextvars context, so the request token must be
+        # captured before the thread spawns.
+        request_token = get_request_token()
+
+        def _worker(request_token=request_token):
             payload = {
                 "session_key": session_key,
                 "messages": [{"role": "user", "content": message}],
@@ -226,8 +231,6 @@ class DreamAgentClient:
                 "acp_mode": True,
                 "mode": "dream",
             }
-            # Snapshot the request token (contextvar) for the background thread.
-            request_token = get_request_token()
             token = request_token or self.auth.get_token()
             headers = {"Authorization": f"Bearer {token}"}
             collected: list[str] = []
@@ -246,6 +249,17 @@ class DreamAgentClient:
                                 self._consume_sse(resp2, collected)
                         elif resp.status_code >= 400:
                             body = resp.read().decode("utf-8", "replace")[:400]
+                            # Parse the friendly message out of FastAPI error bodies
+                            try:
+                                detail = json.loads(body).get("detail")
+                                if isinstance(detail, dict):
+                                    msg = detail.get("message") or detail.get("error") or body
+                                    if resp.status_code == 402:
+                                        msg += (" — Insufficient AI credits. Top up at "
+                                                "dreamagent.cloud/billing.")
+                                    body = msg
+                            except Exception:
+                                pass
                             error = f"HTTP {resp.status_code}: {body}"
                         else:
                             self._consume_sse(resp, collected)
