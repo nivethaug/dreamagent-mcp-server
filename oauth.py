@@ -47,6 +47,14 @@ logger = logging.getLogger("dreamagent.mcp.oauth")
 
 OAUTH_BASE_URL = os.getenv("OAUTH_BASE_URL", "https://mcp.dreamagent.cloud")  # issuer
 DREAMAGENT_API = os.getenv("DREAMAGENT_API_URL", "https://api.dreamagent.cloud")
+
+# Durable client registry — survives restarts so ChatGPT/Claude connectors
+# don't have to re-register after every deploy. (Auth codes stay in-memory:
+# they're single-use and expire in 120s anyway.)
+CLIENTS_FILE = os.getenv(
+    "OAUTH_CLIENTS_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "oauth_clients.json"),
+)
 CODE_TTL_SECONDS = 120
 KEY_NAME_PREFIX = "ChatGPT/Claude OAuth"
 LOGIN_RATE_LIMIT = 10          # attempts per IP per window
@@ -63,6 +71,30 @@ class _Stores:
 
 
 STORE = _Stores()
+
+
+def _save_clients() -> None:
+    """Persist the client registry (called after each DCR)."""
+    try:
+        with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(STORE.clients, f)
+    except Exception as e:
+        logger.warning("oauth: could not persist clients: %s", e)
+
+
+def _load_clients() -> None:
+    """Restore the client registry at boot."""
+    try:
+        with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
+            STORE.clients = json.load(f)
+        logger.info("oauth: loaded %d persisted client(s)", len(STORE.clients))
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning("oauth: could not load clients (%s) — starting empty", e)
+
+
+_load_clients()
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +217,7 @@ async def dynamic_register(request: Request) -> Response:
     }
     logger.info("oauth: registered client %s (%s) uris=%s",
                 client_id, STORE.clients[client_id]["name"], redirect_uris)
+    _save_clients()
 
     return JSONResponse({
         "client_id": client_id,
