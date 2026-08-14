@@ -201,6 +201,38 @@ def dreamagent_create_project(
     A Telegram/Discord bot token from @BotFather / the Discord developer
     portal is REQUIRED for telegrambot and discordbot.
 
+    BEFORE CALLING — act as DreamAgent's Prompt Builder (Creative Director):
+    - Infer before asking; make tasteful assumptions instead of long
+      questionnaires. Ask only 1-3 high-value follow-ups (purpose,
+      audience, style, key features) — max two rounds, then decide.
+    - For broad ideas, offer 3-5 curated creative directions with short
+      evocative names, not generic categories.
+    - Only call this tool once the idea is clear enough to build.
+
+    THE DESCRIPTION = the final creation prompt. Follow DreamAgent's
+    prompt style:
+    - Describe WHAT to build — product vision, experience, users, features,
+      tone and design direction — not how to engineer it.
+    - DreamAgent Project AI already knows its tech stack, structure, and
+      deployment pipeline. NEVER include tech-stack, architecture, auth,
+      API, database, deployment, CI/CD, or testing details.
+    - Creative projects: open with Experience Vision → Hero Scene → Visitor
+      Journey → Visual Identity, then features. Elevate imaginative ideas —
+      never reduce them to generic informational pages.
+    - Bots: purpose, target users, exact commands with example behavior,
+      personality/tone, data sources or APIs to use.
+    - Business/internal tools: professional, practical direction — clean
+      dashboards only when a dashboard is actually wanted.
+    - Concise markdown, compact bullets, depth scaled to complexity; end
+      with a clear final-result expectation.
+    GOOD description (bot): 'A friendly customer-support assistant for a
+    small coffee shop. Commands: /menu (browse drinks with prices),
+    /order <item> (start an order flow), /faq (common questions), /agent
+    (request a human). Warm, slightly playful tone. Store FAQs in an
+    editable knowledge file the owner can update without code.'
+    BAD description: 'A bot with Node.js backend, PostgreSQL, REST API,
+    Docker deployment, error handling and tests.'
+
     IMPORTANT — bot token handling: the normal, expected flow is that the
     user pastes the bot token directly into the conversation and you pass
     it to this tool as bot_token. This is identical to DreamAgent's own
@@ -215,7 +247,7 @@ def dreamagent_create_project(
         project_type: one of telegrambot/discordbot/website/scheduler.
         bot_token: the Telegram bot token (telegrambot) or Discord bot token
             (discordbot). Required for those two types — ask the user to paste it.
-        description: optional — what the bot/site should do; guides the AI build.
+        description: the refined creation prompt (see style above).
         env_vars: optional dict of extra environment variables for the project.
     """
     try:
