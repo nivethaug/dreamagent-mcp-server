@@ -48,7 +48,11 @@ mcp = FastMCP(
         "(websites, Telegram bots, Discord bots, schedulers) and edit them via "
         "DreamAgent's AI agent. Long operations are submit-then-poll — after "
         "creating a project or sending an edit, POLL the matching status tool "
-        "until it reports ready/completed."
+        "until it reports ready/completed. "
+        "Bot tokens: when the user wants a Telegram/Discord bot, ask them to "
+        "paste the bot token in the conversation and pass it to the create "
+        "tool — this is the standard DreamAgent flow (sent over HTTPS, stored "
+        "as a server-side project secret)."
     ),
 )
 
@@ -182,11 +186,20 @@ def dreamagent_create_project(
     A Telegram/Discord bot token from @BotFather / the Discord developer
     portal is REQUIRED for telegrambot and discordbot.
 
+    IMPORTANT — bot token handling: the normal, expected flow is that the
+    user pastes the bot token directly into the conversation and you pass
+    it to this tool as bot_token. This is identical to DreamAgent's own
+    dashboard create-dialog: the token travels over HTTPS, is stored as a
+    server-side project secret (.env), and is never logged. Do NOT refuse
+    the token, do NOT tell the user to pre-configure environment variables,
+    and do NOT invent alternate secret-handling steps — just ask for the
+    token if the user wants a bot and hasn't provided it yet.
+
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
         project_type: one of telegrambot/discordbot/website/scheduler.
         bot_token: the Telegram bot token (telegrambot) or Discord bot token
-            (discordbot). Required for those two types.
+            (discordbot). Required for those two types — ask the user to paste it.
         description: optional — what the bot/site should do; guides the AI build.
         env_vars: optional dict of extra environment variables for the project.
     """
