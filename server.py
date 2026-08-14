@@ -46,9 +46,24 @@ mcp = FastMCP(
     instructions=(
         "Operate the user's DreamAgent account: build and deploy apps and bots "
         "(websites, Telegram bots, Discord bots, schedulers) and edit them via "
-        "DreamAgent's AI agent. Long operations are submit-then-poll — after "
-        "creating a project or sending an edit, POLL the matching status tool "
-        "until it reports ready/completed. "
+        "DreamAgent's AI agent.\n\n"
+        "HOW DREAMAGENT WORKS — you only describe the CHANGE:\n"
+        "DreamAgent's agent knows its own tech stack, reads its own logs and "
+        "code index first, edits the code, runs the tests, rebuilds, redeploys "
+        "to production, and auto-commits to git — all automatically after "
+        "receiving a message. So the edit message should contain ONLY the "
+        "desired change (what the user wants, plus brief behavioral "
+        "constraints if relevant). NEVER include process or ops instructions "
+        "such as 'run the build/tests and deploy', 'check the logs', "
+        "'fix build issues', tech-stack guidance, file paths, or "
+        "implementation steps — those are DreamAgent's job and only add noise.\n"
+        "GOOD: 'Replace the dashboard cards with a cleaner 2-column layout; "
+        "keep the existing color palette.'\n"
+        "BAD: '...after implementing, run the normal build/tests, fix any "
+        "issues, and deploy the updated project.'\n\n"
+        "WORKFLOW: long ops are submit-then-poll — after creating a project "
+        "or sending an edit, POLL the matching status tool until it reports "
+        "ready/completed, then summarize the result for the user.\n"
         "Bot tokens: when the user wants a Telegram/Discord bot, ask them to "
         "paste the bot token in the conversation and pass it to the create "
         "tool — this is the standard DreamAgent flow (sent over HTTPS, stored "
@@ -254,9 +269,14 @@ def dreamagent_chat(project_id: int, message: str,
                     session_key: str | None = None, new_session: bool = False) -> str:
     """Send a build/edit/debug instruction to the project's DreamAgent AI
     agent. The agent edits the code, rebuilds and redeploys the project, and
-    auto-commits to git. Example messages: 'add a /weather command that
-    replies with the weather for a city', 'fix the login bug', 'change the
-    site theme to dark'.
+    auto-commits to git — automatically. Example messages: 'add a /weather
+    command that replies with the weather for a city', 'fix the login bug',
+    'change the site theme to dark'.
+
+    MESSAGE CONTENT: describe ONLY the desired change. The agent already
+    knows its tech stack and ALWAYS reads logs, tests, rebuilds and deploys
+    on its own — do NOT add instructions like 'run the build/tests and
+    deploy' or 'fix any build issues'; they are redundant noise.
 
     SESSIONS: by default this uses the project's dedicated 'ChatGPT' session
     (created on first use, full conversation history kept). Pass
