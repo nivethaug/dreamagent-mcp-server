@@ -223,6 +223,42 @@ class DreamAgentClient:
             return ours[0]
         return self.create_session(project_id, label="ChatGPT")
 
+    def get_active_session(self, project_id: int) -> dict:
+        """Get the session currently holding the project's chat lock."""
+        resp = self._request("GET", f"/projects/{project_id}/active-session")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, f"Getting active session of project {project_id}")
+        return resp.json()
+
+    def resolve_progress_session(self, project_id: int) -> tuple[Optional[str], str]:
+        """Find the session to report progress on, without needing a key.
+
+        Preference order:
+          1. the session currently holding the project lock (an edit is
+             actively running there), matched by id via list_sessions
+          2. the latest non-archived 'ChatGPT'-labeled session (ours)
+          3. the latest non-archived session of any label
+        Returns (session_key or None, how_it_was_found).
+        """
+        sessions = self.list_sessions(project_id)
+        active_id = None
+        try:
+            active_id = (self.get_active_session(project_id) or {}).get("active_session_id")
+        except DreamAgentAPIError:
+            pass
+        if active_id:
+            for s in sessions:
+                if s.get("id") == active_id and not s.get("archived"):
+                    return s.get("session_key"), "locked session (edit running)"
+        non_archived = [s for s in sessions if not s.get("archived")]
+        ours = [s for s in non_archived
+                if (s.get("label") or "").strip().lower() == "chatgpt"]
+        pool = ours or non_archived
+        if pool:
+            how = "ChatGPT session" if ours else "latest session"
+            return pool[0].get("session_key"), how
+        return None, "none"
+
     def release_project_lock(self, project_id: int) -> dict:
         """Force-release the project's chat lock (owner-scoped server-side)."""
         resp = self._request("DELETE", f"/projects/{project_id}/lock")

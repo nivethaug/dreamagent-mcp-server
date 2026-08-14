@@ -485,6 +485,74 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tool — edit progress by project (no session_key needed)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def dreamagent_get_edit_progress(project_id: int) -> str:
+    """Check the progress of the latest AI edit on a project WITHOUT needing
+    a session_key — use this when you don't have one from a previous
+    dreamagent_chat call (e.g. a new conversation, or the user just asks
+    'is my edit done?'). Returns whether an edit is running, its recent
+    output, and the session_key to use for tighter follow-up polling with
+    dreamagent_get_chat_status.
+
+    Note: dreamagent_get_project_status is about CREATION/deployment state
+    and stays 'ready' during edits — it does NOT reflect edit progress.
+    Use THIS tool (or dreamagent_get_chat_status) for edits.
+
+    Args:
+        project_id: the project being edited.
+    """
+    try:
+        _bind_request_token()
+        c = client()
+        session_key, how = c.resolve_progress_session(project_id)
+        if not session_key:
+            return (f"No chat sessions found on project {project_id} — no edits "
+                    f"have been made yet. Use dreamagent_chat to send one.")
+        status = c.chat_status(session_key)
+        chunks = c.chat_chunks(session_key, 0)
+        local = c.local_chat_result(session_key)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+
+    active = bool(status.get("active")) or bool(chunks.get("active"))
+    run_status = chunks.get("status") or status.get("status")
+    total = chunks.get("total", 0)
+    all_text = "".join(chunks.get("chunks") or [])
+
+    parts = [f"session_key={session_key} ({how})",
+             f"edit_active={str(active).lower()}",
+             f"run_status={run_status or 'unknown'}",
+             f"chunks={total}"]
+
+    if all_text.strip():
+        parts.append("recent_output (tail):\n" + all_text[-1500:])
+
+    if not active:
+        if local is not None and local.get("done"):
+            err = local.get("error")
+            final = (local.get("text") or "").strip()
+            if err and err.startswith("HTTP 4"):
+                parts.append("result: the edit was NOT started: " + err)
+            elif err:
+                parts.append("result: stream error (server-side run may still have finished): " + err)
+            elif final:
+                parts.append("result: finished. Final output (tail):\n" + final[-2000:])
+            else:
+                parts.append("result: finished.")
+        else:
+            parts.append("result: no run is currently active.")
+    else:
+        parts.append(
+            f"The edit is still running — poll dreamagent_get_chat_status("
+            f"session_key=\"{session_key}\", after={total}) for incremental output."
+        )
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Tool 6 — cancel chat (safety valve)
 # ---------------------------------------------------------------------------
 
