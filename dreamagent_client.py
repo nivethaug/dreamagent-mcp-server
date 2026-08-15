@@ -144,10 +144,13 @@ class DreamAgentClient:
     # POST /projects
     # ------------------------------------------------------------------
 
-    def create_project(self, name: str, project_type: str, bot_token: str | None,
+    def create_project(self, name: str, project_type: str,
                        description: str | None = None, env_vars: dict | None = None,
                        bot_token_integration_id: int | None = None,
                        global_integration_ids: list | None = None) -> dict:
+        """Create a project. Bot tokens are NEVER accepted as raw values via
+        MCP — the user must save the token in Global Integrations first and
+        pass its id (bot_token_integration_id)."""
         type_id = PROJECT_TYPES.get(project_type.lower())
         if type_id is None:
             raise DreamAgentAPIError(
@@ -156,18 +159,15 @@ class DreamAgentClient:
         payload: dict = {"name": name[:30], "type_id": type_id}
         if description:
             payload["description"] = description
-        if type_id in (2, 3):  # telegram / discord bots require a token
-            if bot_token_integration_id:
-                payload["bot_token_integration_id"] = bot_token_integration_id
-            elif not bot_token:
+        if type_id in (2, 3):  # telegram / discord bots REQUIRE a saved token
+            if not bot_token_integration_id:
                 raise DreamAgentAPIError(
-                    f"A bot_token is required for {project_type} projects — either "
-                    "bot_token_integration_id (from dreamagent_list_global_integrations) "
-                    "or a raw bot_token.", 400)
-            else:
-                payload["bot_token"] = bot_token
-        if type_id == 5 and bot_token:  # scheduler — bot_token doubles as telegram sender token
-            payload["telegram_bot_token"] = bot_token
+                    f"Bot tokens are never accepted through chat. The user must first "
+                    f"save the {project_type} token at dreamagent.cloud → Settings → "
+                    "Global Integrations, then you pass its id as "
+                    "bot_token_integration_id (find it via "
+                    "dreamagent_list_global_integrations).", 400)
+            payload["bot_token_integration_id"] = bot_token_integration_id
         if global_integration_ids:
             payload["global_integration_ids"] = global_integration_ids
         if env_vars:

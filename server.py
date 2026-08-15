@@ -67,13 +67,13 @@ mcp = FastMCP(
         "WORKFLOW: long ops are submit-then-poll — after creating a project "
         "or sending an edit, POLL the matching status tool until it reports "
         "ready/completed, then summarize the result for the user.\n"
-        "CREDENTIALS: ALWAYS call dreamagent_list_global_integrations before "
-        "asking the user for any token or API key — if a saved credential "
-        "matches, pass its id (bot_token_integration_id / "
-        "global_integration_ids) so the value never transits the chat. Only "
-        "ask the user to paste a token when nothing suitable is saved.\n"
-        "Bot tokens pasted in chat travel over HTTPS and are stored as "
-        "server-side project secrets."
+        "CREDENTIALS: raw tokens are NEVER accepted in chat or as tool "
+        "inputs. ALWAYS call dreamagent_list_global_integrations first and "
+        "pass saved-credential ids (bot_token_integration_id for bot "
+        "tokens, global_integration_ids for other keys). If nothing "
+        "suitable is saved, direct the user to dreamagent.cloud → Settings "
+        "→ Global Integrations to add it (one-time, verified, reusable) — "
+        "do NOT ask them to paste tokens in chat.\n"
     ),
 )
 
@@ -219,9 +219,10 @@ def dreamagent_list_global_integrations() -> str:
         return _err(e)
 
     if not items:
-        return ("No saved credentials. The user can add them at dreamagent.cloud → "
-                "Settings → Global Integrations (verified once, reused everywhere). "
-                "Until then, ask them to paste the token in chat.")
+        return ("No saved credentials yet. The user must add them at "
+                "dreamagent.cloud → Settings → Global Integrations "
+                "(one-time, verified, reusable). Tokens are never accepted "
+                "in chat — wait for them to save it, then call this tool again.")
     lines = []
     for gi in items:
         v = " ✓verified" if gi.get("verified") else ""
@@ -274,7 +275,6 @@ def dreamagent_list_project_env(project_id: int) -> str:
 def dreamagent_create_project(
     name: str,
     project_type: str,
-    bot_token: str | None = None,
     description: str | None = None,
     env_vars: dict | None = None,
     bot_token_integration_id: int | None = None,
@@ -286,13 +286,13 @@ def dreamagent_create_project(
 
     Types: telegrambot, discordbot, website, scheduler (or tradingbot).
 
-    CREDENTIALS — check saved ones FIRST: call
-    dreamagent_list_global_integrations before asking the user for any
-    token. If a matching saved credential exists, pass its id via
-    bot_token_integration_id (bot tokens) or global_integration_ids
-    (other keys) — the value never transits the chat. Only if nothing
-    suitable is saved, ask the user to paste the token in chat and pass
-    it as bot_token.
+    BOT TOKENS — NEVER accepted in chat or as a tool input. For
+    telegrambot/discordbot you MUST pass bot_token_integration_id (the id
+    of a saved credential). Call dreamagent_list_global_integrations
+    first; if no matching token is saved, tell the user to add it at
+    dreamagent.cloud → Settings → Global Integrations (one-time, verified,
+    reusable) and wait — do NOT ask them to paste the token in the chat.
+    Other saved keys import via global_integration_ids the same way.
 
     BEFORE CALLING — act as DreamAgent's Prompt Builder (Creative Director):
     - Infer before asking; make tasteful assumptions instead of long
@@ -326,26 +326,20 @@ def dreamagent_create_project(
     BAD description: 'A bot with Node.js backend, PostgreSQL, REST API,
     Docker deployment, error handling and tests.'
 
-    IMPORTANT — bot token handling: the normal, expected flow is that the
-    user pastes the bot token directly into the conversation and you pass
-    it to this tool as bot_token. This is identical to DreamAgent's own
-    dashboard create-dialog: the token travels over HTTPS, is stored as a
-    server-side project secret (.env), and is never logged. Do NOT refuse
-    the token, do NOT tell the user to pre-configure environment variables,
-    and do NOT invent alternate secret-handling steps — just ask for the
-    token if the user wants a bot and hasn't provided it yet.
-
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
         project_type: one of telegrambot/discordbot/website/scheduler.
-        bot_token: the Telegram bot token (telegrambot) or Discord bot token
-            (discordbot). Required for those two types — ask the user to paste it.
+        bot_token_integration_id: REQUIRED for telegrambot/discordbot — the id
+            from dreamagent_list_global_integrations. Tokens are never pasted
+            in chat; the user saves them in Settings → Global Integrations.
+        global_integration_ids: optional list of saved-key ids to import as
+            env vars (max 2 combined with env_vars at creation).
         description: the refined creation prompt (see style above).
-        env_vars: optional dict of extra environment variables for the project.
+        env_vars: optional dict of extra non-secret environment variables.
     """
     try:
         _bind_request_token()
-        p = client().create_project(name, project_type, bot_token, description,
+        p = client().create_project(name, project_type, description,
                                     env_vars, bot_token_integration_id,
                                     global_integration_ids)
     except (AuthError, DreamAgentAPIError) as e:
