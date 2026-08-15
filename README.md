@@ -177,6 +177,7 @@ gateway callbacks via `TRUSTED_OAUTH_REDIRECTS`.
 
 - **DreamAgent** — [dreamagent.cloud](https://dreamagent.cloud)
 - Documentation — [dreamagent.cloud/documentation](https://dreamagent.cloud/documentation)
+- Help & Support — [dreamagent.cloud/help](https://dreamagent.cloud/help)
 - Support — support@dreamagent.cloud
 
 ## License

@@ -195,7 +195,7 @@ def _err(e: Exception) -> str:
         return (
             "ERROR: No DreamAgent account connected. Add your DreamAgent API key "
             "to the connector settings in ChatGPT (create one at dreamagent.cloud → "
-            "Settings → Connect to ChatGPT)."
+            "Settings → Connect to ChatGPT). Help: https://dreamagent.cloud/help"
         )
     return f"ERROR: {e}"
 
@@ -266,7 +266,8 @@ def dreamagent_list_global_integrations() -> str:
         return ("No saved credentials yet. The user must add them at "
                 "dreamagent.cloud → Settings → Global Integrations "
                 "(one-time, verified, reusable). Tokens are never accepted "
-                "in chat — wait for them to save it, then call this tool again.")
+                "in chat — wait for them to save it, then call this tool again. "
+                "Help: https://dreamagent.cloud/help")
     lines = []
     for gi in items:
         v = " ✓verified" if gi.get("verified") else ""
