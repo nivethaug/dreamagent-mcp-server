@@ -67,10 +67,13 @@ mcp = FastMCP(
         "WORKFLOW: long ops are submit-then-poll — after creating a project "
         "or sending an edit, POLL the matching status tool until it reports "
         "ready/completed, then summarize the result for the user.\n"
-        "Bot tokens: when the user wants a Telegram/Discord bot, ask them to "
-        "paste the bot token in the conversation and pass it to the create "
-        "tool — this is the standard DreamAgent flow (sent over HTTPS, stored "
-        "as a server-side project secret)."
+        "CREDENTIALS: ALWAYS call dreamagent_list_global_integrations before "
+        "asking the user for any token or API key — if a saved credential "
+        "matches, pass its id (bot_token_integration_id / "
+        "global_integration_ids) so the value never transits the chat. Only "
+        "ask the user to paste a token when nothing suitable is saved.\n"
+        "Bot tokens pasted in chat travel over HTTPS and are stored as "
+        "server-side project secrets."
     ),
 )
 
@@ -196,20 +199,100 @@ def dreamagent_list_projects(status: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+def dreamagent_list_global_integrations() -> str:
+    """List the user's saved Global Integrations (reusable credentials).
+
+    ALWAYS call this BEFORE asking the user for a Telegram/Discord bot
+    token or any API key: if a matching credential is already saved, use
+    its id — pass bot_token_integration_id (for bot tokens) or include
+    the id in global_integration_ids (for other keys) when calling
+    dreamagent_create_project. Values are never shown — only ids and
+    metadata.
+
+    Returns per credential: id, token_type (telegram/discord/email/other),
+    key_name, verified, title, category.
+    """
+    try:
+        _bind_request_token()
+        items = client().list_global_integrations()
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+
+    if not items:
+        return ("No saved credentials. The user can add them at dreamagent.cloud → "
+                "Settings → Global Integrations (verified once, reused everywhere). "
+                "Until then, ask them to paste the token in chat.")
+    lines = []
+    for gi in items:
+        v = " ✓verified" if gi.get("verified") else ""
+        lines.append(
+            f"#{gi.get('id')} [{gi.get('token_type')}] {gi.get('key_name')} — "
+            f"{gi.get('title') or 'no title'}{v}"
+        )
+    return ("\n".join(lines)
+            + "\nUse these ids in dreamagent_create_project instead of asking "
+              "the user to paste tokens.")
+
+
+@mcp.tool()
+def dreamagent_list_project_env(project_id: int) -> str:
+    """List a project's environment variables with details (keys only —
+    values are masked; secrets are never returned). Shows each key's title,
+    description, docs URL, category, and sensitivity. Use this to see which
+    integrations a project already has before telling the user to add more.
+
+    Args:
+        project_id: the project to inspect.
+    """
+    try:
+        _bind_request_token()
+        data = client().list_project_env(project_id)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+
+    variables = data.get("variables") or []
+    if not variables:
+        return f"Project {project_id} has no environment variables configured."
+    lines = [f"Project {data.get('project_name', project_id)} env keys:"]
+    for v in variables:
+        parts = [f"{v.get('key')}"]
+        if v.get("title"):
+            parts.append(f"— {v.get('title')}")
+        if v.get("category"):
+            parts.append(f"[{v.get('category')}]")
+        if v.get("is_sensitive") or v.get("masked"):
+            parts.append("(sensitive, value hidden)")
+        lines.append("  " + " ".join(parts))
+        if v.get("description"):
+            lines.append(f"      {v.get('description')}")
+        if v.get("docs_url"):
+            lines.append(f"      docs: {v.get('docs_url')}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def dreamagent_create_project(
     name: str,
     project_type: str,
     bot_token: str | None = None,
     description: str | None = None,
     env_vars: dict | None = None,
+    bot_token_integration_id: int | None = None,
+    global_integration_ids: list | None = None,
 ) -> str:
     """Create a new DreamAgent project. Creation is ASYNC — call
     dreamagent_get_project_status afterwards and poll until status is
     'ready' (bots take ~2-5 minutes; websites longer).
 
     Types: telegrambot, discordbot, website, scheduler (or tradingbot).
-    A Telegram/Discord bot token from @BotFather / the Discord developer
-    portal is REQUIRED for telegrambot and discordbot.
+
+    CREDENTIALS — check saved ones FIRST: call
+    dreamagent_list_global_integrations before asking the user for any
+    token. If a matching saved credential exists, pass its id via
+    bot_token_integration_id (bot tokens) or global_integration_ids
+    (other keys) — the value never transits the chat. Only if nothing
+    suitable is saved, ask the user to paste the token in chat and pass
+    it as bot_token.
 
     BEFORE CALLING — act as DreamAgent's Prompt Builder (Creative Director):
     - Infer before asking; make tasteful assumptions instead of long
@@ -262,7 +345,9 @@ def dreamagent_create_project(
     """
     try:
         _bind_request_token()
-        p = client().create_project(name, project_type, bot_token, description, env_vars)
+        p = client().create_project(name, project_type, bot_token, description,
+                                    env_vars, bot_token_integration_id,
+                                    global_integration_ids)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
 

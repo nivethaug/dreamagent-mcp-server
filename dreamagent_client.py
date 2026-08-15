@@ -145,7 +145,9 @@ class DreamAgentClient:
     # ------------------------------------------------------------------
 
     def create_project(self, name: str, project_type: str, bot_token: str | None,
-                       description: str | None = None, env_vars: dict | None = None) -> dict:
+                       description: str | None = None, env_vars: dict | None = None,
+                       bot_token_integration_id: int | None = None,
+                       global_integration_ids: list | None = None) -> dict:
         type_id = PROJECT_TYPES.get(project_type.lower())
         if type_id is None:
             raise DreamAgentAPIError(
@@ -155,14 +157,19 @@ class DreamAgentClient:
         if description:
             payload["description"] = description
         if type_id in (2, 3):  # telegram / discord bots require a token
-            if not bot_token:
+            if bot_token_integration_id:
+                payload["bot_token_integration_id"] = bot_token_integration_id
+            elif not bot_token:
                 raise DreamAgentAPIError(
-                    f"A bot_token is required for {project_type} projects "
-                    "(the Telegram/Discord bot token).", 400)
-            payload["bot_token"] = bot_token
-        if type_id == 5:  # scheduler — bot_token doubles as telegram sender token
-            if bot_token:
-                payload["telegram_bot_token"] = bot_token
+                    f"A bot_token is required for {project_type} projects — either "
+                    "bot_token_integration_id (from dreamagent_list_global_integrations) "
+                    "or a raw bot_token.", 400)
+            else:
+                payload["bot_token"] = bot_token
+        if type_id == 5 and bot_token:  # scheduler — bot_token doubles as telegram sender token
+            payload["telegram_bot_token"] = bot_token
+        if global_integration_ids:
+            payload["global_integration_ids"] = global_integration_ids
         if env_vars:
             payload["environment_variables"] = [
                 {"key": k, "value": v, "docs_url": ""} for k, v in env_vars.items()
@@ -171,6 +178,26 @@ class DreamAgentClient:
         resp = self._request("POST", "/projects", json_body=payload, timeout=60.0)
         if resp.status_code not in (200, 201):
             raise self._friendly_error(resp, f"Creating {project_type} project")
+        return resp.json()
+
+    # ------------------------------------------------------------------
+    # Global Integrations (saved credentials — metadata only, no values)
+    # ------------------------------------------------------------------
+
+    def list_global_integrations(self) -> list:
+        resp = self._request("GET", "/api/global-integrations")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Listing global integrations")
+        return resp.json()
+
+    # ------------------------------------------------------------------
+    # GET /projects/{id}/env — masked env vars + registry metadata
+    # ------------------------------------------------------------------
+
+    def list_project_env(self, project_id: int) -> dict:
+        resp = self._request("GET", f"/projects/{project_id}/env")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, f"Listing env vars of project {project_id}")
         return resp.json()
 
     # ------------------------------------------------------------------
