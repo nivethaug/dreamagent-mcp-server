@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nivethaug/dreamagent",
+  "title": "DreamAgent",
+  "description": "Build and deploy websites, Telegram and Discord bots from chat via the DreamAgent platform.",
+  "version": "1.0.0",
+  "websiteUrl": "https://dreamagent.cloud",
+  "repository": {
+    "id": "1334364401",
+    "source": "github",
+    "url": "https://github.com/nivethaug/dreamagent-mcp-server"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.dreamagent.cloud/mcp"
+    }
+  ]
+}
