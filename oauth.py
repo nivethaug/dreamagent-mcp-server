@@ -58,6 +58,19 @@ CLIENTS_FILE = os.getenv(
     "OAUTH_CLIENTS_FILE",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "oauth_clients.json"),
 )
+
+# MCP gateways/directories that connect WITHOUT dynamic client registration
+# and expect their callback to be pre-allowed. When /authorize arrives with
+# an unknown client_id whose redirect_uri matches this set, a public client
+# is auto-registered on the fly (PKCE still mandatory, so the flow stays
+# safe). Extend via TRUSTED_OAUTH_REDIRECTS="uri1,uri2".
+TRUSTED_REDIRECT_URIS = {
+    "https://glama.ai/api/app/mcp/oauth/callback",
+}
+for _extra in os.getenv("TRUSTED_OAUTH_REDIRECTS", "").split(","):
+    _extra = _extra.strip()
+    if _extra:
+        TRUSTED_REDIRECT_URIS.add(_extra)
 CODE_TTL_SECONDS = 120
 KEY_NAME_PREFIX = "ChatGPT/Claude OAuth"
 LOGIN_RATE_LIMIT = 10          # attempts per IP per window
@@ -358,7 +371,21 @@ def _validate_authorize_params(q) -> tuple[Optional[dict], Optional[str]]:
 
     client = STORE.clients.get(client_id or "")
     if not client:
-        return None, "Unknown client_id — the connector must re-register."
+        # Trusted MCP gateway (e.g. glama.ai) connecting without DCR:
+        # auto-register a public client if the redirect_uri is pre-trusted.
+        if redirect_uri in TRUSTED_REDIRECT_URIS and client_id:
+            STORE.clients[client_id] = {
+                "secret": None,  # public client — PKCE is the protection
+                "redirect_uris": [redirect_uri],
+                "name": f"gateway:{client_id[:24]}",
+                "created": time.time(),
+            }
+            _save_clients()
+            logger.info("oauth: auto-registered trusted gateway client %s "
+                        "(redirect %s)", client_id, redirect_uri)
+            client = STORE.clients[client_id]
+        else:
+            return None, "Unknown client_id — the connector must re-register."
     if not redirect_uri or redirect_uri not in client["redirect_uris"]:
         return None, "redirect_uri does not match the registered redirect URIs."
     if response_type != "code":
@@ -469,7 +496,8 @@ async def token(request: Request) -> Response:
     client = STORE.clients.get(client_id or "")
     if not client:
         return JSONResponse({"error": "invalid_client"}, status_code=401)
-    if client_secret is not None and client_secret != client["secret"]:
+    # Public clients (trusted gateways, secret=None) authenticate via PKCE alone.
+    if client.get("secret") is not None and client_secret != client["secret"]:
         return JSONResponse({"error": "invalid_client"}, status_code=401)
 
     _prune_codes()
