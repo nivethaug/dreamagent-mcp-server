@@ -1,0 +1,6 @@
+{
+  "dreamagent": {
+    "type": "streamable_http",
+    "url": "https://mcp.dreamagent.cloud/mcp"
+  }
+}

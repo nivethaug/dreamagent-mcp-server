@@ -1,0 +1,18 @@
+{
+  "plugins": [
+    {
+      "name": "dreamagent",
+      "source": {
+        "type": "git-subdir",
+        "url": "https://github.com/nivethaug/dreamagent-mcp-server",
+        "ref": "main",
+        "subdir": "plugin"
+      },
+      "category": "productivity",
+      "policy": {
+        "installation": "ON_INSTALL",
+        "authentication": "ON_INSTALL"
+      }
+    }
+  ]
+}

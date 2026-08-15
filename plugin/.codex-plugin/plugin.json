@@ -1,0 +1,35 @@
+{
+  "name": "dreamagent",
+  "version": "1.0.0",
+  "description": "Build, edit, debug and deploy apps, Telegram bots, Discord bots and schedulers on DreamAgent — directly from chat.",
+  "author": "DreamAgent",
+  "homepage": "https://dreamagent.cloud",
+  "repository": "https://github.com/nivethaug/dreamagent-mcp-server",
+  "license": "MIT",
+  "keywords": [
+    "dreamagent", "mcp", "app-builder", "telegram-bot", "discord-bot",
+    "deployment", "devops", "automation"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "DreamAgent",
+    "shortDescription": "Build and deploy apps & bots from chat",
+    "longDescription": "Operate your DreamAgent account conversationally: create websites, Telegram bots, Discord bots and schedulers; watch them build and go live; then edit them with natural-language instructions ('add a /weather command', 'fix the login bug', 'restyle the dashboard'). DreamAgent's AI agent handles the code, tests, rebuild and redeploy automatically. Uses your plan's AI credits.",
+    "developerName": "DreamAgent",
+    "category": "productivity",
+    "capabilities": [
+      "Create projects (websites, Telegram/Discord bots, schedulers)",
+      "Track build and deployment status",
+      "Edit existing projects via natural-language instructions",
+      "Monitor edit progress and results",
+      "Manage chat sessions per project"
+    ],
+    "websiteURL": "https://dreamagent.cloud",
+    "privacyPolicyURL": "https://dreamagent.cloud/privacy",
+    "termsOfServiceURL": "https://dreamagent.cloud/terms",
+    "defaultPrompt": "Show my DreamAgent projects",
+    "brandColor": "#6366F1",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  }
+}
