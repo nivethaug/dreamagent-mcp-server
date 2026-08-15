@@ -129,6 +129,22 @@ async def health_endpoint(_request):
     from starlette.responses import JSONResponse
     return JSONResponse({"status": "healthy", "service": "dreamagent-mcp"})
 
+
+# OpenAI apps domain verification (developers.openai.com plugin submission).
+# Serves the challenge token at the origin-root well-known URL:
+#   https://mcp.dreamagent.cloud/.well-known/openai-apps-challenge
+# Override with OPENAI_APPS_CHALLENGE_TOKEN if OpenAI re-issues a token.
+_OPENAI_APPS_CHALLENGE_TOKEN = os.getenv(
+    "OPENAI_APPS_CHALLENGE_TOKEN",
+    "kg-v0lpsx3LeONG6yV6MWOr3ViPnz3sgeZAeMGilgpM",
+)
+
+
+@mcp.custom_route("/.well-known/openai-apps-challenge", methods=["GET"])
+async def openai_apps_challenge(_request):
+    from starlette.responses import PlainTextResponse
+    return PlainTextResponse(_OPENAI_APPS_CHALLENGE_TOKEN)
+
 _client: DreamAgentClient | None = None
 _local_auth: AuthManager | None = None  # set only when env credentials exist
 
