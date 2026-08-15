@@ -343,55 +343,82 @@ def dreamagent_create_project(
     global_integration_ids. Credentials are stored as project secrets
     and are never exposed back.
 
-    DESCRIPTION = the refined creation prompt. Build it exactly like
-    DreamAgent's own Prompt Assistant — you are a Creative Director /
-    Product Manager, not an architect:
-    - Elevate the idea into a memorable direction; infer tasteful
-      defaults instead of interviewing the user; scale depth to
-      complexity (landing page = short, portfolio = medium, SaaS or
-      cinematic experience = richer).
-    - Describe WHAT to build: product vision, audience, experience,
-      features, tone, design direction. NEVER include tech-stack,
-      architecture, auth, API/database, deployment, CI/CD, or testing
-      details — DreamAgent handles those.
-    - Use clean markdown headings and compact bullets; end with a clear
-      final-result expectation.
+    DESCRIPTION = the refined creation brief. Act as a Creative
+    Director / Product Manager, not an architect.
 
-    Per project_type, follow its dedicated rules:
-    - website: include Project Vision, Design Style, Pages, Hero
-      Experience, Core Features, UI Components, Animations, Mobile
-      Experience, Final Expectation. MAX 4 pages — always name them.
-      3D/Three.js only when it genuinely improves the experience. No
-      dashboard/admin unless explicitly requested. For cinematic,
-      brand, portfolio, or imaginative ideas lead with Experience
-      Vision → Hero Scene → Visitor Journey → Visual Identity before
-      features — never reduce an imaginative idea to a generic
-      informational site.
-    - telegrambot: include Bot Purpose, Commands, User Flow, Optional
-      AI Features, Integrations (only if needed), Final Expectations.
-      MAX 5 commands; always include /start (welcome + inline menu) and
-      /help (lists all commands). Specify personality, response tone,
-      formatting (inline keyboards, emoji, markdown), friendly error
-      handling (never raw exceptions), and memory strategy (per-user
-      context, session timeout). For AI assistants also: model,
-      response length, system-prompt direction, rate limiting,
-      fallback behavior.
-    - discordbot: include Bot Purpose, Slash Commands, Events,
-      Permissions, Optional AI Features, Final Expectations. MAX 5
-      slash commands; always include /help. Specify embed style
-      (colors, thumbnails, footer), which events the bot listens to,
-      role/permission requirements, and user-friendly embed errors.
-    - scheduler: include Job Purpose, Data Sources, Schedule, Delivery
-      Channels, Message Format, Final Expectations. Use concrete
-      schedules (e.g. every 5m, daily:09:00). Name exact APIs
-      (CoinGecko, Open-Meteo, ...) or scraping targets; specify
-      delivery (email / Telegram / Discord webhook) and message
-      fields; include behavior on API failure or timeout; for alert
-      jobs specify thresholds and cooldown.
-    - tradingbot: include Strategy, Indicators, Risk Management, Stop
-      Loss, Take Profit, Position Sizing, Exchange, Final
-      Expectations. Risk management is mandatory; paper trading is the
-      default mode; never imply guaranteed profit.
+    Create a concise but complete description of WHAT should be built:
+    - product vision and target audience
+    - user experience and core functionality
+    - design/tone direction
+    - important features and behavior
+    - final expected result
+
+    Do not include implementation details such as:
+    - technology stack
+    - architecture
+    - database/API implementation
+    - authentication implementation
+    - deployment
+    - CI/CD
+    - testing commands
+
+    Infer reasonable defaults when missing details are non-critical.
+    Ask for clarification only when missing information materially
+    affects the requested functionality, scope, credentials, or
+    expected result.
+
+    Prefer the following structure and constraints for each project
+    type, but do not override explicit user requirements:
+
+    Website:
+    - Project Vision
+    - Design Style
+    - Pages
+    - Hero Experience
+    - Core Features
+    - UI Components
+    - Mobile Experience
+    - Final Expectation
+    - Prefer up to 4 pages unless the user clearly requires more.
+
+    Telegram bot:
+    - Bot Purpose
+    - Commands
+    - User Flow
+    - Optional AI Features
+    - Integrations when required
+    - Final Expectations
+    - Prefer a compact command set; always include /start and /help
+      unless the user's explicit requirements conflict.
+
+    Discord bot:
+    - Bot Purpose
+    - Slash Commands
+    - Events
+    - Permissions
+    - Optional AI Features
+    - Final Expectations
+    - Prefer a compact command set; include /help where appropriate.
+
+    Scheduler:
+    - Job Purpose
+    - Data Sources
+    - Schedule
+    - Delivery Channels
+    - Message Format
+    - Final Expectations
+    - Use concrete schedules and specify failure/timeout behavior.
+
+    Trading bot:
+    - Strategy
+    - Indicators
+    - Risk Management
+    - Stop Loss
+    - Take Profit
+    - Position Sizing
+    - Exchange
+    - Final Expectations
+    - Default to paper trading and never imply guaranteed profit.
 
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
