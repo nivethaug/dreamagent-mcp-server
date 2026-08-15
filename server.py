@@ -78,6 +78,13 @@ mcp = FastMCP(
 # /register (DCR), /authorize, /token, and the /.well-known discovery docs.
 register_oauth(mcp)
 
+
+# Health endpoint for MCP gateways/directories (Glama & co. probe GET /health).
+@mcp.custom_route("/health", methods=["GET"])
+async def health_endpoint(_request):
+    from starlette.responses import JSONResponse
+    return JSONResponse({"status": "healthy", "service": "dreamagent-mcp"})
+
 _client: DreamAgentClient | None = None
 _local_auth: AuthManager | None = None  # set only when env credentials exist
 
