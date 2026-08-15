@@ -402,20 +402,26 @@ def dreamagent_chat(project_id: int, message: str,
     WRITE ACTION — builds, modifies, or fixes an EXISTING project with
     a natural-language instruction. Use ONLY when the user clearly asks
     for a change ("add X", "fix Y", "change the theme"). If the user is
-    only asking for advice, analysis, or suggestions ("what could be
-    improved?"), do NOT call this — answer from the project's info
-    instead.
+    only asking for advice, analysis, review, or suggestions ("what
+    could be improved?", "review my bot"), do NOT call this — answer
+    from the project's info instead; a review request is not an edit.
 
     Describe ONLY the desired change — DreamAgent's AI automatically
     handles code, tests, rebuild, and redeployment. Completed changes
     are saved and committed automatically.
 
-    ASYNCHRONOUS (states: queued → running → completed | failed |
-    cancelled): returns immediately; monitor with
-    dreamagent_get_edit_progress (or dreamagent_get_chat_status with the
-    returned session key) until a terminal state. Report success only
-    after 'completed'. Edits consume the user's AI credits; on
-    insufficient credits the call fails immediately with a clear error.
+    ASYNCHRONOUS: returns immediately with the session_key; monitor
+    with dreamagent_get_edit_progress (or dreamagent_get_chat_status
+    with the returned session key) until a terminal state. Report
+    success only after run_status reaches 'completed'. Edits consume
+    the user's AI credits.
+
+    ERRORS (actual returns): failures come back as text starting with
+    'ERROR:'. If the edit was rejected before starting, the text says
+    'the edit was NOT started' plus the reason — HTTP 402 insufficient
+    credits, 409 another edit already active, 423 session lock held by
+    another session, 404 wrong project id, 401 no account connected.
+    Treat the edit as failed/cancelled only when a status tool says so.
 
     ONE EDIT AT A TIME: never start another modification on the same
     project while one is running — check progress first and wait.
@@ -544,12 +550,17 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
     dreamagent_chat when you have the session key — keep checking until
     a terminal state.
 
-    Returns (real fields): edit_active (true while queued/running),
-    run_status (queued | running | completed | failed | cancelled |
-    unknown), next_after (cursor for the next check), new_output (text
-    produced since the last check), and on completion result: finished
-    (with final output) / NOT started (rejected, e.g. insufficient
-    credits) / stream error.
+    Returns (actual fields): 'active=', 'run_status=', 'next_after='
+    (cursor for the next check), optional 'new_output:' (text produced
+    since the last check), then either "Still working — poll again" or
+    a terminal 'done=true' line: finished (with the final output tail),
+    'the edit was NOT started: <reason>' (rejected early, e.g. HTTP 402
+    insufficient credits), or 'stream error' (the connection to the run
+    broke — the server-side run may still have finished; verify with
+    dreamagent_get_edit_progress).
+    run_status values (backend run store): queued | running |
+    cancel_requested | completed | failed | cancelled | interrupted |
+    unknown.
 
     Args:
         session_key: the session key returned by dreamagent_chat.
@@ -614,9 +625,15 @@ def dreamagent_get_edit_progress(project_id: int) -> str:
     the session key isn't available (e.g. a new conversation), and
     BEFORE starting any new edit.
 
-    Returns (real fields): session_key, edit_active, run_status
-    (queued | running | completed | failed | cancelled | unknown),
-    recent_output, and result on completion.
+    Returns (actual fields): 'session_key=', 'edit_active=',
+    'run_status=', 'chunks=' (output size so far), optional
+    'recent_output (tail):', and a terminal 'result:' line: finished
+    (with the final output tail), 'the edit was NOT started: <reason>'
+    (rejected early, e.g. HTTP 402 insufficient credits), 'stream
+    error', or 'no run is currently active'.
+    run_status values (backend run store): queued | running |
+    cancel_requested | completed | failed | cancelled | interrupted |
+    unknown.
 
     Distinct from dreamagent_get_project_status: project status =
     creation/deployment state (creating/ready/failed); edit progress =
@@ -685,6 +702,11 @@ def dreamagent_cancel_chat(session_key: str) -> str:
     when the user explicitly asks to stop/cancel the active edit.
     After cancellation, do NOT claim the requested change was
     completed — report that it was stopped.
+
+    Returns 'Cancellation requested: <backend message>' — e.g. 'Query
+    cancelled', 'Cancellation requested' (durable run), or 'No active
+    query found'. Afterwards poll dreamagent_get_chat_status /
+    dreamagent_get_edit_progress until run_status reports 'cancelled'.
 
     Args:
         session_key: the session key of the running edit.
