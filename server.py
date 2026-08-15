@@ -60,7 +60,11 @@ mcp = FastMCP(
         "ORCHESTRATION RULES:\n"
         "1. PROJECT SELECTION — if the user names a project but the ID is "
         "unknown: dreamagent_list_projects first, then act.\n"
-        "2. NEW PROJECT — create_project → get_project_status (poll until "
+        "2. NEW PROJECT — confirm first: present the name, type, final "
+        "description, and which saved credential will be used (if several "
+        "telegram/discord credentials are saved, ask which one) and WAIT "
+        "for the user's explicit go-ahead — never create on the first "
+        "mention. Then create_project → get_project_status (poll until "
         "ready/failed).\n"
         "3. EXISTING PROJECT EDIT — confirm project → check no edit is "
         "already running (get_edit_progress) → dreamagent_chat → monitor "
@@ -316,6 +320,15 @@ def dreamagent_create_project(
     WRITE ACTION — creates a new DreamAgent project (website, Telegram
     bot, Discord bot, or scheduler). Use ONLY when the user clearly asks
     to create/build a new project; not for questions about what to build.
+
+    CONFIRM BEFORE CALLING — never create on the first mention. In ONE
+    message, present and get the user's explicit go-ahead for:
+    1. The credential: run dreamagent_list_global_integrations first.
+       If several telegram/discord credentials are saved, list them
+       (id + title) and ask which to use. If exactly one is saved,
+       state which one you will use. Never pick silently.
+    2. The plan: name, type, and the final description exactly as you
+       will submit it. Call this tool only after the user confirms.
 
     CREATION IS ASYNCHRONOUS: after calling, check
     dreamagent_get_project_status repeatedly until the project is
