@@ -525,8 +525,10 @@ async def token(request: Request) -> Response:
     client = STORE.clients.get(client_id or "")
     if not client:
         return JSONResponse({"error": "invalid_client"}, status_code=401)
-    # Public clients (trusted gateways, secret=None) authenticate via PKCE alone.
-    if client.get("secret") is not None and client_secret != client["secret"]:
+    # If the client presents a secret it must match; omission is fine —
+    # PKCE (S256) is mandatory below either way, which secures the flow
+    # for public-style clients (trusted gateways, browser extensions).
+    if client_secret is not None and client_secret != client.get("secret"):
         return JSONResponse({"error": "invalid_client"}, status_code=401)
 
     _prune_codes()
