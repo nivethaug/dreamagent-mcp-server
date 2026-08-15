@@ -231,6 +231,33 @@ async def discovery_protected_resource(request: Request) -> JSONResponse:
     })
 
 
+def _valid_redirect_uri(u) -> bool:
+    """https anywhere, or plain-http on loopback (RFC 8252 native-app style,
+    used by gateway 'browser extension' fallbacks like Glama's)."""
+    if not isinstance(u, str):
+        return False
+    if u.startswith("https://"):
+        return True
+    if u.startswith("http://localhost") or u.startswith("http://127.0.0.1"):
+        return True
+    return False
+
+
+def _redirect_allowed(registered: str, presented: str) -> bool:
+    """Exact match, except loopback URIs ignore the port (RFC 8252 §7.3)."""
+    if registered == presented:
+        return True
+    from urllib.parse import urlsplit
+    try:
+        r, p = urlsplit(registered), urlsplit(presented)
+    except Exception:
+        return False
+    if r.scheme.startswith("http") and r.hostname in ("localhost", "127.0.0.1"):
+        return (r.scheme == p.scheme and r.hostname == p.hostname
+                and r.path == p.path and r.query == p.query)
+    return False
+
+
 async def dynamic_register(request: Request) -> Response:
     """RFC 7591 dynamic client registration (ChatGPT/Claude use this)."""
     try:
@@ -240,10 +267,11 @@ async def dynamic_register(request: Request) -> Response:
 
     redirect_uris = body.get("redirect_uris") or []
     if not isinstance(redirect_uris, list) or not redirect_uris or \
-            not all(isinstance(u, str) and u.startswith("https://") for u in redirect_uris):
+            not all(_valid_redirect_uri(u) for u in redirect_uris):
         return JSONResponse(
             {"error": "invalid_redirect_uri",
-             "error_description": "redirect_uris must be non-empty https URLs"},
+             "error_description": "redirect_uris must be non-empty https URLs "
+                                  "(loopback http allowed)"},
             status_code=400)
 
     client_id = f"da-mcp-{secrets.token_hex(12)}"
@@ -386,7 +414,8 @@ def _validate_authorize_params(q) -> tuple[Optional[dict], Optional[str]]:
             client = STORE.clients[client_id]
         else:
             return None, "Unknown client_id — the connector must re-register."
-    if not redirect_uri or redirect_uri not in client["redirect_uris"]:
+    if not redirect_uri or not any(
+            _redirect_allowed(u, redirect_uri) for u in client["redirect_uris"]):
         return None, "redirect_uri does not match the registered redirect URIs."
     if response_type != "code":
         return None, "Only response_type=code is supported."
