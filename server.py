@@ -328,7 +328,8 @@ def dreamagent_create_project(
        (id + title) and ask which to use. If exactly one is saved,
        state which one you will use. Never pick silently.
     2. The plan: name, type, and the final description exactly as you
-       will submit it. Call this tool only after the user confirms.
+       will submit it (this is the Prompt Assistant's recommendation
+       summary). Call this tool only after the user confirms.
 
     CREATION IS ASYNCHRONOUS: after calling, check
     dreamagent_get_project_status repeatedly until the project is
@@ -342,9 +343,55 @@ def dreamagent_create_project(
     global_integration_ids. Credentials are stored as project secrets
     and are never exposed back.
 
-    DESCRIPTION should be the refined build request: what to build, for
-    whom, features/commands, tone and design direction. No tech-stack,
-    architecture, or deployment details — DreamAgent handles those.
+    DESCRIPTION = the refined creation prompt. Build it exactly like
+    DreamAgent's own Prompt Assistant — you are a Creative Director /
+    Product Manager, not an architect:
+    - Elevate the idea into a memorable direction; infer tasteful
+      defaults instead of interviewing the user; scale depth to
+      complexity (landing page = short, portfolio = medium, SaaS or
+      cinematic experience = richer).
+    - Describe WHAT to build: product vision, audience, experience,
+      features, tone, design direction. NEVER include tech-stack,
+      architecture, auth, API/database, deployment, CI/CD, or testing
+      details — DreamAgent handles those.
+    - Use clean markdown headings and compact bullets; end with a clear
+      final-result expectation.
+
+    Per project_type, follow its dedicated rules:
+    - website: include Project Vision, Design Style, Pages, Hero
+      Experience, Core Features, UI Components, Animations, Mobile
+      Experience, Final Expectation. MAX 4 pages — always name them.
+      3D/Three.js only when it genuinely improves the experience. No
+      dashboard/admin unless explicitly requested. For cinematic,
+      brand, portfolio, or imaginative ideas lead with Experience
+      Vision → Hero Scene → Visitor Journey → Visual Identity before
+      features — never reduce an imaginative idea to a generic
+      informational site.
+    - telegrambot: include Bot Purpose, Commands, User Flow, Optional
+      AI Features, Integrations (only if needed), Final Expectations.
+      MAX 5 commands; always include /start (welcome + inline menu) and
+      /help (lists all commands). Specify personality, response tone,
+      formatting (inline keyboards, emoji, markdown), friendly error
+      handling (never raw exceptions), and memory strategy (per-user
+      context, session timeout). For AI assistants also: model,
+      response length, system-prompt direction, rate limiting,
+      fallback behavior.
+    - discordbot: include Bot Purpose, Slash Commands, Events,
+      Permissions, Optional AI Features, Final Expectations. MAX 5
+      slash commands; always include /help. Specify embed style
+      (colors, thumbnails, footer), which events the bot listens to,
+      role/permission requirements, and user-friendly embed errors.
+    - scheduler: include Job Purpose, Data Sources, Schedule, Delivery
+      Channels, Message Format, Final Expectations. Use concrete
+      schedules (e.g. every 5m, daily:09:00). Name exact APIs
+      (CoinGecko, Open-Meteo, ...) or scraping targets; specify
+      delivery (email / Telegram / Discord webhook) and message
+      fields; include behavior on API failure or timeout; for alert
+      jobs specify thresholds and cooldown.
+    - tradingbot: include Strategy, Indicators, Risk Management, Stop
+      Loss, Take Profit, Position Sizing, Exchange, Final
+      Expectations. Risk management is mandatory; paper trading is the
+      default mode; never imply guaranteed profit.
 
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
