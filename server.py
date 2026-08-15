@@ -313,8 +313,9 @@ def dreamagent_create_project(
     global_integration_ids: list | None = None,
 ) -> str:
     """
-    Create a new DreamAgent project (website, Telegram bot, Discord bot,
-    or scheduler). Use when the user wants to build a new application.
+    WRITE ACTION — creates a new DreamAgent project (website, Telegram
+    bot, Discord bot, or scheduler). Use ONLY when the user clearly asks
+    to create/build a new project; not for questions about what to build.
 
     CREATION IS ASYNCHRONOUS: after calling, check
     dreamagent_get_project_status repeatedly until the project is
@@ -398,18 +399,23 @@ def dreamagent_get_project_status(project_id: int) -> str:
 def dreamagent_chat(project_id: int, message: str,
                     session_key: str | None = None, new_session: bool = False) -> str:
     """
-    Build, modify, or fix an EXISTING project with a natural-language
-    instruction. Use for feature additions, UI changes, bug fixes, and
-    configuration changes.
+    WRITE ACTION — builds, modifies, or fixes an EXISTING project with
+    a natural-language instruction. Use ONLY when the user clearly asks
+    for a change ("add X", "fix Y", "change the theme"). If the user is
+    only asking for advice, analysis, or suggestions ("what could be
+    improved?"), do NOT call this — answer from the project's info
+    instead.
 
     Describe ONLY the desired change — DreamAgent's AI automatically
     handles code, tests, rebuild, and redeployment. Completed changes
     are saved and committed automatically.
 
-    ASYNCHRONOUS: returns immediately; monitor with
+    ASYNCHRONOUS (states: queued → running → completed | failed |
+    cancelled): returns immediately; monitor with
     dreamagent_get_edit_progress (or dreamagent_get_chat_status with the
-    returned session key) until done. Edits consume the user's AI
-    credits.
+    returned session key) until a terminal state. Report success only
+    after 'completed'. Edits consume the user's AI credits; on
+    insufficient credits the call fails immediately with a clear error.
 
     ONE EDIT AT A TIME: never start another modification on the same
     project while one is running — check progress first and wait.
@@ -506,11 +512,15 @@ def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
 @mcp.tool()
 def dreamagent_release_project_lock(project_id: int) -> str:
     """
-    Recovery operation: release a project's editing lock when a stale or
+    RECOVERY-ONLY — releases a project's editing lock when a stale or
     abandoned session blocks new modifications. NOT a normal editing
-    step. Only use with evidence of a stale lock — never to bypass an
-    actively running edit, and confirm with the user first if they may
-    have the project open elsewhere.
+    step, and NEVER a way to bypass an actively running edit.
+
+    The lock state is not machine-readable from here: to judge staleness,
+    check dreamagent_get_edit_progress — if no edit is active but
+    dreamagent_chat still fails with a lock error, the lock is stale.
+    Confirm with the user before releasing if they may have the project
+    open elsewhere.
 
     Args:
         project_id: the project to unlock.
@@ -530,10 +540,16 @@ def dreamagent_release_project_lock(project_id: int) -> str:
 @mcp.tool()
 def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
     """
-    Check the progress of a specific AI development request, by session.
-    Use after dreamagent_chat when you have the session key — keep
-    checking until the operation completes or fails. Returns new output
-    since the last check plus the next cursor.
+    Check the progress of a specific AI edit, by session. Use after
+    dreamagent_chat when you have the session key — keep checking until
+    a terminal state.
+
+    Returns (real fields): edit_active (true while queued/running),
+    run_status (queued | running | completed | failed | cancelled |
+    unknown), next_after (cursor for the next check), new_output (text
+    produced since the last check), and on completion result: finished
+    (with final output) / NOT started (rejected, e.g. insufficient
+    credits) / stream error.
 
     Args:
         session_key: the session key returned by dreamagent_chat.
@@ -593,13 +609,19 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
 @mcp.tool()
 def dreamagent_get_edit_progress(project_id: int) -> str:
     """
-    Check the latest AI modification progress for a project — no session
-    key needed. Use after requesting an edit when the session key isn't
-    available (e.g. a new conversation), and BEFORE starting any new
-    edit to avoid running two modifications at once.
+    Check the latest AI edit progress for a project — no session key
+    needed. Use when the user asks whether their edit is finished, when
+    the session key isn't available (e.g. a new conversation), and
+    BEFORE starting any new edit.
+
+    Returns (real fields): session_key, edit_active, run_status
+    (queued | running | completed | failed | cancelled | unknown),
+    recent_output, and result on completion.
 
     Distinct from dreamagent_get_project_status: project status =
-    creation/deployment state; edit progress = current AI modification.
+    creation/deployment state (creating/ready/failed); edit progress =
+    current AI modification state. If edit_active is true, do NOT
+    launch another edit for the same project.
 
     Args:
         project_id: the project being edited.
@@ -659,9 +681,10 @@ def dreamagent_get_edit_progress(project_id: int) -> str:
 @mcp.tool()
 def dreamagent_cancel_chat(session_key: str) -> str:
     """
-    Stop an AI modification that is currently running. Use ONLY when the
-    user explicitly asks to stop/cancel — the stopped operation will not
-    complete.
+    DESTRUCTIVE — stops an AI edit that is currently running. Use ONLY
+    when the user explicitly asks to stop/cancel the active edit.
+    After cancellation, do NOT claim the requested change was
+    completed — report that it was stopped.
 
     Args:
         session_key: the session key of the running edit.
