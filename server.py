@@ -32,11 +32,25 @@ except ImportError:
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
+from mcp.types import ToolAnnotations
 
 from auth import AuthManager, AuthError
 from dreamagent_client import DreamAgentClient, DreamAgentAPIError, PROJECT_TYPES
 from dreamagent_client import set_request_token, get_request_token
 import oauth as oauth_as
+
+# ---------------------------------------------------------------------------
+# MCP tool annotations (readOnlyHint / openWorldHint / destructiveHint).
+# Shared objects so all 12 tools expose consistent, explicit metadata.
+# ---------------------------------------------------------------------------
+_READ_ONLY = ToolAnnotations(
+    readOnlyHint=True, openWorldHint=False, destructiveHint=False)
+_WRITES_PROJECT = ToolAnnotations(
+    readOnlyHint=False, openWorldHint=True, destructiveHint=False)
+_WRITES_LOCAL = ToolAnnotations(
+    readOnlyHint=False, openWorldHint=False, destructiveHint=False)
+_DESTRUCTIVE = ToolAnnotations(
+    readOnlyHint=False, openWorldHint=False, destructiveHint=True)
 
 register_oauth = oauth_as.register_oauth_routes
 
@@ -190,7 +204,7 @@ def _err(e: Exception) -> str:
 # Tool 1 — list projects
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_list_projects(status: str | None = None) -> str:
     """
     List the user's DreamAgent projects.
@@ -227,7 +241,7 @@ def dreamagent_list_projects(status: str | None = None) -> str:
 # Tool 2 — create project
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_list_global_integrations() -> str:
     """
     List the user's saved credentials (Global Integrations).
@@ -265,7 +279,7 @@ def dreamagent_list_global_integrations() -> str:
               "the user to paste tokens.")
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_list_project_env(project_id: int) -> str:
     """
     List a project's environment variables with their details.
@@ -307,7 +321,7 @@ def dreamagent_list_project_env(project_id: int) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_create_project(
     name: str,
     project_type: str,
@@ -448,7 +462,7 @@ def dreamagent_create_project(
 # Tool 3 — project status
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_get_project_status(project_id: int) -> str:
     """
     Check a project's creation/deployment state: creating, ready, or
@@ -482,7 +496,7 @@ def dreamagent_get_project_status(project_id: int) -> str:
 # Tool 4 — chat (edit/build via the AI agent)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_chat(project_id: int, message: str,
                     session_key: str | None = None, new_session: bool = False) -> str:
     """
@@ -551,7 +565,7 @@ def dreamagent_chat(project_id: int, message: str,
 # Session management (mirrors the Telegram/Discord bot integrations)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_list_sessions(project_id: int) -> str:
     """
     List a project's development sessions (conversation threads).
@@ -580,7 +594,7 @@ def dreamagent_list_sessions(project_id: int) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITES_LOCAL)
 def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
     """
     Create a new development session for a project — a separate
@@ -602,7 +616,7 @@ def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
             f"to use this thread.")
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITES_LOCAL)
 def dreamagent_release_project_lock(project_id: int) -> str:
     """
     RECOVERY-ONLY — releases a project's editing lock when a stale or
@@ -630,7 +644,7 @@ def dreamagent_release_project_lock(project_id: int) -> str:
 # Tool 5 — chat status (poll)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
     """
     Check the progress of a specific AI edit, by session. Use after
@@ -704,7 +718,7 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
 # Tool — edit progress by project (no session_key needed)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def dreamagent_get_edit_progress(project_id: int) -> str:
     """
     Check the latest AI edit progress for a project — no session key
@@ -782,7 +796,7 @@ def dreamagent_get_edit_progress(project_id: int) -> str:
 # Tool 6 — cancel chat (safety valve)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def dreamagent_cancel_chat(session_key: str) -> str:
     """
     DESTRUCTIVE — stops an AI edit that is currently running. Use ONLY
