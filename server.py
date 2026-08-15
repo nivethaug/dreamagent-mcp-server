@@ -50,30 +50,37 @@ mcp = FastMCP(
         "Operate the user's DreamAgent account: build and deploy apps and bots "
         "(websites, Telegram bots, Discord bots, schedulers) and edit them via "
         "DreamAgent's AI agent.\n\n"
-        "HOW DREAMAGENT WORKS — you only describe the CHANGE:\n"
-        "DreamAgent's agent knows its own tech stack, reads its own logs and "
-        "code index first, edits the code, runs the tests, rebuilds, redeploys "
-        "to production, and auto-commits to git — all automatically after "
-        "receiving a message. So the edit message should contain ONLY the "
-        "desired change (what the user wants, plus brief behavioral "
-        "constraints if relevant). NEVER include process or ops instructions "
-        "such as 'run the build/tests and deploy', 'check the logs', "
-        "'fix build issues', tech-stack guidance, file paths, or "
-        "implementation steps — those are DreamAgent's job and only add noise.\n"
+        "HOW EDITS WORK — you only describe the CHANGE:\n"
+        "DreamAgent's AI automatically handles code, tests, rebuild, "
+        "redeployment, and commits. Edit messages should contain ONLY the "
+        "desired change — never 'run the build/tests and deploy', 'check the "
+        "logs', tech-stack guidance, or implementation steps.\n"
         "GOOD: 'Replace the dashboard cards with a cleaner 2-column layout; "
-        "keep the existing color palette.'\n"
-        "BAD: '...after implementing, run the normal build/tests, fix any "
-        "issues, and deploy the updated project.'\n\n"
-        "WORKFLOW: long ops are submit-then-poll — after creating a project "
-        "or sending an edit, POLL the matching status tool until it reports "
-        "ready/completed, then summarize the result for the user.\n"
-        "CREDENTIALS: raw tokens are NEVER accepted in chat or as tool "
-        "inputs. ALWAYS call dreamagent_list_global_integrations first and "
-        "pass saved-credential ids (bot_token_integration_id for bot "
-        "tokens, global_integration_ids for other keys). If nothing "
-        "suitable is saved, direct the user to dreamagent.cloud → Settings "
-        "→ Global Integrations to add it (one-time, verified, reusable) — "
-        "do NOT ask them to paste tokens in chat.\n"
+        "keep the existing color palette.'\n\n"
+        "ORCHESTRATION RULES:\n"
+        "1. PROJECT SELECTION — if the user names a project but the ID is "
+        "unknown: dreamagent_list_projects first, then act.\n"
+        "2. NEW PROJECT — create_project → get_project_status (poll until "
+        "ready/failed).\n"
+        "3. EXISTING PROJECT EDIT — confirm project → check no edit is "
+        "already running (get_edit_progress) → dreamagent_chat → monitor "
+        "until complete → only then report success.\n"
+        "4. ONE EDIT AT A TIME — never launch two AI modifications on the "
+        "same project concurrently; check progress and wait instead.\n"
+        "5. PERSISTENCE — completed edits are saved and committed "
+        "automatically; you may tell the user changes are saved.\n"
+        "6. DEPLOYMENT — rebuild/redeploy is automatic after successful "
+        "edits; report the project as updated only after completion.\n"
+        "7. CREDENTIALS — raw tokens are NEVER accepted in chat or as tool "
+        "inputs. Check dreamagent_list_global_integrations first and pass "
+        "saved-credential IDs (bot_token_integration_id for bot tokens, "
+        "global_integration_ids for other keys). If nothing is saved, direct "
+        "the user to dreamagent.cloud → Settings → Global Integrations — "
+        "never ask for pasted tokens. Global Integrations (user-level, "
+        "reusable) are distinct from project env vars (per-project).\n"
+        "8. ERRORS — if a tool reports no credits, an active edit, auth "
+        "failure, or a lock, explain that user-facing issue; never pretend "
+        "the operation completed.\n"
     ),
 )
 
@@ -165,15 +172,17 @@ def _err(e: Exception) -> str:
 
 @mcp.tool()
 def dreamagent_list_projects(status: str | None = None) -> str:
-    """List the user's DreamAgent projects.
+    """
+    List the user's DreamAgent projects.
 
-    Returns id, name, type, status and domain for each project. Use this to
-    find the project_id before editing, and to see which projects are ready
-    or failed.
+    Returns each project's name, ID, type, status, and live domain (when
+    available). Use when the user asks to see, find, select, or check their
+    projects — and ALWAYS before modifying a project when its ID is not
+    already known (resolve names to IDs here first).
 
     Args:
-        status: optional filter — one of creating/ready/failed.
-    """
+        status: optional filter — creating/ready/failed.
+"""
     try:
         _bind_request_token()
         projects = client().list_projects(status)
@@ -200,18 +209,19 @@ def dreamagent_list_projects(status: str | None = None) -> str:
 
 @mcp.tool()
 def dreamagent_list_global_integrations() -> str:
-    """List the user's saved Global Integrations (reusable credentials).
-
-    ALWAYS call this BEFORE asking the user for a Telegram/Discord bot
-    token or any API key: if a matching credential is already saved, use
-    its id — pass bot_token_integration_id (for bot tokens) or include
-    the id in global_integration_ids (for other keys) when calling
-    dreamagent_create_project. Values are never shown — only ids and
-    metadata.
-
-    Returns per credential: id, token_type (telegram/discord/email/other),
-    key_name, verified, title, category.
     """
+    List the user's saved credentials (Global Integrations).
+
+    ALWAYS call this before creating any bot project or asking the user
+    for a token/API key. Saved credentials are referenced BY ID when
+    creating projects: bot_token_integration_id for bot tokens,
+    global_integration_ids for other keys. Secret values are never
+    returned — only IDs and metadata (type, key name, verified, title).
+
+    If nothing suitable is saved: direct the user to dreamagent.cloud →
+    Settings → Global Integrations to add it (one-time, verified,
+    reusable). Never ask the user to paste tokens in chat.
+"""
     try:
         _bind_request_token()
         items = client().list_global_integrations()
@@ -237,14 +247,20 @@ def dreamagent_list_global_integrations() -> str:
 
 @mcp.tool()
 def dreamagent_list_project_env(project_id: int) -> str:
-    """List a project's environment variables with details (keys only —
-    values are masked; secrets are never returned). Shows each key's title,
-    description, docs URL, category, and sensitivity. Use this to see which
-    integrations a project already has before telling the user to add more.
+    """
+    List a project's environment variables with their details.
+
+    Shows each key's name, title, description, docs URL, and category —
+    values are masked (secrets are never returned). Use to see which
+    integrations a project already has before adding more, or to answer
+    "what keys does my project have?".
+
+    These are PROJECT-SPECIFIC variables — distinct from the user's
+    Global Integrations (dreamagent_list_global_integrations).
 
     Args:
         project_id: the project to inspect.
-    """
+"""
     try:
         _bind_request_token()
         data = client().list_project_env(project_id)
@@ -280,63 +296,35 @@ def dreamagent_create_project(
     bot_token_integration_id: int | None = None,
     global_integration_ids: list | None = None,
 ) -> str:
-    """Create a new DreamAgent project. Creation is ASYNC — call
-    dreamagent_get_project_status afterwards and poll until status is
-    'ready' (bots take ~2-5 minutes; websites longer).
+    """
+    Create a new DreamAgent project (website, Telegram bot, Discord bot,
+    or scheduler). Use when the user wants to build a new application.
 
-    Types: telegrambot, discordbot, website, scheduler (or tradingbot).
+    CREATION IS ASYNCHRONOUS: after calling, check
+    dreamagent_get_project_status repeatedly until the project is
+    'ready' or 'failed' (bots ~2-5 min, websites longer).
 
-    BOT TOKENS — NEVER accepted in chat or as a tool input. For
-    telegrambot/discordbot you MUST pass bot_token_integration_id (the id
-    of a saved credential). Call dreamagent_list_global_integrations
-    first; if no matching token is saved, tell the user to add it at
-    dreamagent.cloud → Settings → Global Integrations (one-time, verified,
-    reusable) and wait — do NOT ask them to paste the token in the chat.
-    Other saved keys import via global_integration_ids the same way.
+    CREDENTIALS: raw bot tokens are never accepted in chat or as inputs.
+    For Telegram/Discord bots you MUST pass bot_token_integration_id —
+    the ID of a saved credential from dreamagent_list_global_integrations.
+    If none is saved, direct the user to dreamagent.cloud → Settings →
+    Global Integrations. Other saved keys can be imported via
+    global_integration_ids. Credentials are stored as project secrets
+    and are never exposed back.
 
-    BEFORE CALLING — act as DreamAgent's Prompt Builder (Creative Director):
-    - Infer before asking; make tasteful assumptions instead of long
-      questionnaires. Ask only 1-3 high-value follow-ups (purpose,
-      audience, style, key features) — max two rounds, then decide.
-    - For broad ideas, offer 3-5 curated creative directions with short
-      evocative names, not generic categories.
-    - Only call this tool once the idea is clear enough to build.
-
-    THE DESCRIPTION = the final creation prompt. Follow DreamAgent's
-    prompt style:
-    - Describe WHAT to build — product vision, experience, users, features,
-      tone and design direction — not how to engineer it.
-    - DreamAgent Project AI already knows its tech stack, structure, and
-      deployment pipeline. NEVER include tech-stack, architecture, auth,
-      API, database, deployment, CI/CD, or testing details.
-    - Creative projects: open with Experience Vision → Hero Scene → Visitor
-      Journey → Visual Identity, then features. Elevate imaginative ideas —
-      never reduce them to generic informational pages.
-    - Bots: purpose, target users, exact commands with example behavior,
-      personality/tone, data sources or APIs to use.
-    - Business/internal tools: professional, practical direction — clean
-      dashboards only when a dashboard is actually wanted.
-    - Concise markdown, compact bullets, depth scaled to complexity; end
-      with a clear final-result expectation.
-    GOOD description (bot): 'A friendly customer-support assistant for a
-    small coffee shop. Commands: /menu (browse drinks with prices),
-    /order <item> (start an order flow), /faq (common questions), /agent
-    (request a human). Warm, slightly playful tone. Store FAQs in an
-    editable knowledge file the owner can update without code.'
-    BAD description: 'A bot with Node.js backend, PostgreSQL, REST API,
-    Docker deployment, error handling and tests.'
+    DESCRIPTION should be the refined build request: what to build, for
+    whom, features/commands, tone and design direction. No tech-stack,
+    architecture, or deployment details — DreamAgent handles those.
 
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
-        project_type: one of telegrambot/discordbot/website/scheduler.
-        bot_token_integration_id: REQUIRED for telegrambot/discordbot — the id
-            from dreamagent_list_global_integrations. Tokens are never pasted
-            in chat; the user saves them in Settings → Global Integrations.
-        global_integration_ids: optional list of saved-key ids to import as
-            env vars (max 2 combined with env_vars at creation).
-        description: the refined creation prompt (see style above).
-        env_vars: optional dict of extra non-secret environment variables.
-    """
+        project_type: website / telegrambot / discordbot / scheduler.
+        bot_token_integration_id: REQUIRED for telegrambot & discordbot —
+            saved-credential ID (see dreamagent_list_global_integrations).
+        global_integration_ids: optional saved-key IDs to import as env vars.
+        description: the build request (what + for whom + features/tone).
+        env_vars: optional non-secret environment variables.
+"""
     try:
         _bind_request_token()
         p = client().create_project(name, project_type, description,
@@ -358,12 +346,17 @@ def dreamagent_create_project(
 
 @mcp.tool()
 def dreamagent_get_project_status(project_id: int) -> str:
-    """Get a project's current status. Poll this after creation and after
-    AI edits. Statuses: creating (still building), ready (live), failed.
+    """
+    Check a project's creation/deployment state: creating, ready, or
+    failed. Use after dreamagent_create_project (poll until ready) and
+    whenever the user asks whether a project is ready or live.
+
+    NOTE: this reports the PROJECT's build/deploy state — NOT AI edit
+    progress. For edits use dreamagent_get_edit_progress.
 
     Args:
-        project_id: numeric project id (from dreamagent_list_projects / create).
-    """
+        project_id: the project to check.
+"""
     try:
         _bind_request_token()
         s = client().get_project_status(project_id)
@@ -388,34 +381,29 @@ def dreamagent_get_project_status(project_id: int) -> str:
 @mcp.tool()
 def dreamagent_chat(project_id: int, message: str,
                     session_key: str | None = None, new_session: bool = False) -> str:
-    """Send a build/edit/debug instruction to the project's DreamAgent AI
-    agent. The agent edits the code, rebuilds and redeploys the project, and
-    auto-commits to git — automatically. Example messages: 'add a /weather
-    command that replies with the weather for a city', 'fix the login bug',
-    'change the site theme to dark'.
+    """
+    Build, modify, or fix an EXISTING project with a natural-language
+    instruction. Use for feature additions, UI changes, bug fixes, and
+    configuration changes.
 
-    MESSAGE CONTENT: describe ONLY the desired change. The agent already
-    knows its tech stack and ALWAYS reads logs, tests, rebuilds and deploys
-    on its own — do NOT add instructions like 'run the build/tests and
-    deploy' or 'fix any build issues'; they are redundant noise.
+    Describe ONLY the desired change — DreamAgent's AI automatically
+    handles code, tests, rebuild, and redeployment. Completed changes
+    are saved and committed automatically.
 
-    SESSIONS: by default this uses the project's dedicated 'ChatGPT' session
-    (created on first use, full conversation history kept). Pass
-    session_key (from dreamagent_list_sessions) to continue a specific
-    session, or new_session=true to start a fresh one.
+    ASYNCHRONOUS: returns immediately; monitor with
+    dreamagent_get_edit_progress (or dreamagent_get_chat_status with the
+    returned session key) until done. Edits consume the user's AI
+    credits.
 
-    This is ASYNC and consumes AI credits. Immediate rejections (no credits,
-    session locked, edit already running) are returned as errors right away;
-    otherwise poll dreamagent_get_chat_status(session_key) until done=true
-    (typically 1-10 minutes).
+    ONE EDIT AT A TIME: never start another modification on the same
+    project while one is running — check progress first and wait.
 
     Args:
-        project_id: the project to edit.
-        message: natural-language instruction for the agent.
-        session_key: optional — continue this specific session instead of the
-            default 'ChatGPT' one.
-        new_session: optional — start a brand-new session for this edit.
-    """
+        project_id: the project to modify.
+        message: the desired change (what + any behavioral constraints).
+        session_key: optional — continue a specific development session.
+        new_session: optional — start a fresh session for a new topic.
+"""
     try:
         _bind_request_token()
         c = client()
@@ -450,13 +438,15 @@ def dreamagent_chat(project_id: int, message: str,
 
 @mcp.tool()
 def dreamagent_list_sessions(project_id: int) -> str:
-    """List the chat sessions of a project (conversation threads with the
-    project's AI agent). Use session_keys with dreamagent_chat to continue a
-    specific thread.
+    """
+    List a project's development sessions (conversation threads).
+    Each session preserves context for related work on that project —
+    continuing one keeps the conversation and project context. Use to
+    identify or resume a specific thread.
 
     Args:
         project_id: the project.
-    """
+"""
     try:
         _bind_request_token()
         sessions = client().list_sessions(project_id)
@@ -477,13 +467,15 @@ def dreamagent_list_sessions(project_id: int) -> str:
 
 @mcp.tool()
 def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
-    """Create a new chat session (conversation thread) on a project. Use when
-    starting a distinct topic so it doesn't mix with earlier history.
+    """
+    Create a new development session for a project — a separate
+    conversation with its own context. Use when starting a distinct
+    topic so it doesn't mix with earlier session history.
 
     Args:
         project_id: the project.
-        label: optional name for the session (default 'ChatGPT').
-    """
+        label: optional name for the session.
+"""
     try:
         _bind_request_token()
         s = client().create_session(project_id, label=label[:60])
@@ -496,14 +488,16 @@ def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
 
 @mcp.tool()
 def dreamagent_release_project_lock(project_id: int) -> str:
-    """Force-release a project's chat lock (last resort when edits fail with
-    'session locked' and the locking session is stale/closed). WARNING: if
-    the user has the project chat open in the DreamAgent dashboard, this
-    interrupts that session — confirm with the user first.
+    """
+    Recovery operation: release a project's editing lock when a stale or
+    abandoned session blocks new modifications. NOT a normal editing
+    step. Only use with evidence of a stale lock — never to bypass an
+    actively running edit, and confirm with the user first if they may
+    have the project open elsewhere.
 
     Args:
         project_id: the project to unlock.
-    """
+"""
     try:
         _bind_request_token()
         r = client().release_project_lock(project_id)
@@ -518,14 +512,16 @@ def dreamagent_release_project_lock(project_id: int) -> str:
 
 @mcp.tool()
 def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
-    """Poll the progress of a dreamagent_chat run. Returns whether the run
-    is still active, any new text produced since the 'after' cursor, and the
-    next cursor to pass on the following call. Keep polling until done=true.
+    """
+    Check the progress of a specific AI development request, by session.
+    Use after dreamagent_chat when you have the session key — keep
+    checking until the operation completes or fails. Returns new output
+    since the last check plus the next cursor.
 
     Args:
-        session_key: the session_key returned by dreamagent_chat.
-        after: the 'next_after' cursor returned by the previous poll (0 first time).
-    """
+        session_key: the session key returned by dreamagent_chat.
+        after: cursor from the previous check (0 on the first check).
+"""
     try:
         _bind_request_token()
         c = client()
@@ -579,20 +575,18 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
 
 @mcp.tool()
 def dreamagent_get_edit_progress(project_id: int) -> str:
-    """Check the progress of the latest AI edit on a project WITHOUT needing
-    a session_key — use this when you don't have one from a previous
-    dreamagent_chat call (e.g. a new conversation, or the user just asks
-    'is my edit done?'). Returns whether an edit is running, its recent
-    output, and the session_key to use for tighter follow-up polling with
-    dreamagent_get_chat_status.
+    """
+    Check the latest AI modification progress for a project — no session
+    key needed. Use after requesting an edit when the session key isn't
+    available (e.g. a new conversation), and BEFORE starting any new
+    edit to avoid running two modifications at once.
 
-    Note: dreamagent_get_project_status is about CREATION/deployment state
-    and stays 'ready' during edits — it does NOT reflect edit progress.
-    Use THIS tool (or dreamagent_get_chat_status) for edits.
+    Distinct from dreamagent_get_project_status: project status =
+    creation/deployment state; edit progress = current AI modification.
 
     Args:
         project_id: the project being edited.
-    """
+"""
     try:
         _bind_request_token()
         c = client()
@@ -647,11 +641,14 @@ def dreamagent_get_edit_progress(project_id: int) -> str:
 
 @mcp.tool()
 def dreamagent_cancel_chat(session_key: str) -> str:
-    """Cancel a running dreamagent_chat edit for the given session_key.
+    """
+    Stop an AI modification that is currently running. Use ONLY when the
+    user explicitly asks to stop/cancel — the stopped operation will not
+    complete.
 
     Args:
-        session_key: the session_key returned by dreamagent_chat.
-    """
+        session_key: the session key of the running edit.
+"""
     try:
         _bind_request_token()
         r = client().cancel_chat(session_key)
