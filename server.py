@@ -80,7 +80,23 @@ mcp = FastMCP(
         "reusable) are distinct from project env vars (per-project).\n"
         "8. ERRORS — if a tool reports no credits, an active edit, auth "
         "failure, or a lock, explain that user-facing issue; never pretend "
-        "the operation completed.\n"
+        "the operation completed.\n\n"
+        "TOOL SELECTION EXAMPLES (intent → tool):\n"
+        "- 'Show my DreamAgent projects' → list_projects\n"
+        "- 'Create a Telegram customer support bot' → create_project "
+        "(with saved-credential ID) → get_project_status until ready\n"
+        "- 'Is my project ready?' → get_project_status\n"
+        "- 'Add a /status command to Crypto Copilot' → list_projects (find "
+        "ID) → get_edit_progress (no active edit) → dreamagent_chat → "
+        "monitor until complete\n"
+        "- 'Is that edit finished?' → get_edit_progress (or "
+        "get_chat_status with the session key)\n"
+        "- 'Stop the current edit' → cancel_chat (explicit request only)\n"
+        "- 'Continue the previous development conversation' → "
+        "list_sessions → dreamagent_chat with that session key\n"
+        "- 'Start a separate development topic' → create_session\n"
+        "- 'The project is locked but nothing is running' → "
+        "release_project_lock, only after confirming the lock is stale\n"
     ),
 )
 
@@ -469,8 +485,9 @@ def dreamagent_list_sessions(project_id: int) -> str:
 def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
     """
     Create a new development session for a project — a separate
-    conversation with its own context. Use when starting a distinct
-    topic so it doesn't mix with earlier session history.
+    conversation with its own context. Use when the user wants to start
+    a distinct development topic. A new session does NOT replace or
+    affect the existing project — earlier sessions remain available.
 
     Args:
         project_id: the project.
