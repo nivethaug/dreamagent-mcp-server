@@ -586,9 +586,12 @@ def dreamagent_chat(project_id: int, message: str,
 def dreamagent_list_sessions(project_id: int) -> str:
     """
     List a project's development sessions (conversation threads).
-    Each session preserves context for related work on that project —
-    continuing one keeps the conversation and project context. Use to
-    identify or resume a specific thread.
+    Returns each session's identifier (session key) and context so you
+    can select, continue, or monitor a specific development session —
+    pass the session key to dreamagent_chat to continue that thread or
+    to dreamagent_get_chat_status to monitor it. The session key is a
+    reference used to address a session; it is not an authentication
+    credential or a secret.
 
     Args:
         project_id: the project.
@@ -664,9 +667,11 @@ def dreamagent_release_project_lock(project_id: int) -> str:
 @mcp.tool(annotations=_READ_ONLY)
 def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
     """
-    Check the progress of a specific AI edit, by session. Use after
-    dreamagent_chat when you have the session key — keep checking until
-    a terminal state.
+    Check the progress and final status of a specific AI development
+    session using its session key. Use this to monitor an asynchronous
+    edit until it completes, fails, or is cancelled — keep checking
+    until a terminal state. The session key comes from dreamagent_chat
+    or dreamagent_list_sessions and is an identifier, not a secret.
 
     Returns (actual fields): 'active=', 'run_status=', 'next_after='
     (cursor for the next check), optional 'new_output:' (text produced
@@ -676,9 +681,8 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
     insufficient credits), or 'stream error' (the connection to the run
     broke — the server-side run may still have finished; verify with
     dreamagent_get_edit_progress).
-    run_status values (backend run store): queued | running |
-    cancel_requested | completed | failed | cancelled | interrupted |
-    unknown.
+    run_status values: queued | running | cancel_requested | completed |
+    failed | cancelled | interrupted | unknown.
 
     Args:
         session_key: the session key returned by dreamagent_chat.
@@ -738,25 +742,27 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
 @mcp.tool(annotations=_READ_ONLY)
 def dreamagent_get_edit_progress(project_id: int) -> str:
     """
-    Check the latest AI edit progress for a project — no session key
-    needed. Use when the user asks whether their edit is finished, when
-    the session key isn't available (e.g. a new conversation), and
-    BEFORE starting any new edit.
+    Check the latest AI edit progress for a project using its project
+    identifier — no session key needed: the project id retrieves the
+    session holding the latest edit. Use when the user asks whether
+    their edit is finished, when the session key isn't available
+    (e.g. a new conversation), and BEFORE starting any new edit.
 
-    Returns (actual fields): 'session_key=', 'edit_active=',
-    'run_status=', 'chunks=' (output size so far), optional
-    'recent_output (tail):', and a terminal 'result:' line: finished
-    (with the final output tail), 'the edit was NOT started: <reason>'
-    (rejected early, e.g. HTTP 402 insufficient credits), 'stream
-    error', or 'no run is currently active'.
-    run_status values (backend run store): queued | running |
-    cancel_requested | completed | failed | cancelled | interrupted |
-    unknown.
+    Returns (actual fields): 'session_key=' (the identifier of the
+    session this progress comes from), 'edit_active=', 'run_status=',
+    'chunks=' (output size so far), optional 'recent_output (tail):',
+    and a terminal 'result:' line: finished (with the final output
+    tail), 'the edit was NOT started: <reason>' (rejected early,
+    e.g. HTTP 402 insufficient credits), 'stream error', or 'no run is
+    currently active'.
+    run_status values: queued | running | cancel_requested | completed |
+    failed | cancelled | interrupted | unknown.
 
     Distinct from dreamagent_get_project_status: project status =
     creation/deployment state (creating/ready/failed); edit progress =
-    current AI modification state. If edit_active is true, do NOT
-    launch another edit for the same project.
+    current AI modification state; chat status (dreamagent_get_chat_status)
+    monitors one specific session by its session key. If edit_active is
+    true, do NOT launch another edit for the same project.
 
     Args:
         project_id: the project being edited.
