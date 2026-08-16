@@ -231,7 +231,10 @@ def dreamagent_list_projects(status: str | None = None) -> str:
     already known (resolve names to IDs here first).
 
     Args:
-        status: optional filter — creating/ready/failed.
+        status: optional exact-match filter (e.g. 'ready', 'failed').
+            During creation, projects report intermediate phases
+            (creating/building/deploying/…), so filtering by 'creating'
+            does not match every in-progress project.
 """
     try:
         _bind_request_token()
@@ -440,17 +443,6 @@ def dreamagent_create_project(
     - Final Expectations
     - Use concrete schedules and specify failure/timeout behavior.
 
-    Trading bot:
-    - Strategy
-    - Indicators
-    - Risk Management
-    - Stop Loss
-    - Take Profit
-    - Position Sizing
-    - Exchange
-    - Final Expectations
-    - Default to paper trading and never imply guaranteed profit.
-
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
         project_type: website / telegrambot / discordbot / scheduler.
@@ -482,8 +474,12 @@ def dreamagent_create_project(
 @mcp.tool(annotations=_READ_ONLY)
 def dreamagent_get_project_status(project_id: int) -> str:
     """
-    Check a project's creation/deployment state: creating, ready, or
-    failed. Use after dreamagent_create_project (poll until ready) and
+    Check a project's creation/deployment state. Terminal states are
+    'ready' (built and live) and 'failed'; while a project is being
+    created it reports progressive phases such as 'creating',
+    'building', 'deploying', or 'ai_provisioning' — treat any
+    non-terminal status as still building. Use after
+    dreamagent_create_project (poll until ready or failed) and
     whenever the user asks whether a project is ready or live.
 
     NOTE: this reports the PROJECT's build/deploy state — NOT AI edit
