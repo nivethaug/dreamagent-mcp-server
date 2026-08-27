@@ -41,12 +41,15 @@ def get_request_token() -> str | None:
 
 
 # Project type name -> type_id (from project_types seed, verified in codebase)
+# NOTE: type_ids 1-6 are the legacy SERIAL seed; the 'agent' type was added
+# later and its id varies per environment — resolved by slug at creation time.
 PROJECT_TYPES = {
     "website": 1,
     "telegrambot": 2,
     "discordbot": 3,
     "tradingbot": 4,
     "scheduler": 5,
+    "agent": None,  # resolved dynamically via the /project-types API
 }
 
 
@@ -151,10 +154,28 @@ class DreamAgentClient:
         """Create a project. Bot tokens are NEVER accepted as raw values via
         MCP — the user must save the token in Global Integrations first and
         pass its id (bot_token_integration_id)."""
-        type_id = PROJECT_TYPES.get(project_type.lower())
-        if type_id is None:
+        slug = project_type.lower().replace("-", "").replace("_", "")
+        type_id = PROJECT_TYPES.get(slug)
+        if slug == "agent":
+            # The agent type was seeded after the legacy SERIAL ids — resolve
+            # its id from the /project-types API instead of hardcoding.
+            with httpx.Client(timeout=10) as _tc:
+                _tr = _tc.get(f"{self.api_url}/project-types",
+                              headers=self._headers())
+            if _tr.status_code == 200:
+                _types = _tr.json()
+                if isinstance(_types, dict):
+                    _types = _types.get("project_types", _types.get("data", []))
+                for t in (_types if isinstance(_types, list) else []):
+                    if isinstance(t, dict) and t.get("type") == "agent":
+                        type_id = t["id"]
+                        break
+            if type_id is None:
+                raise DreamAgentAPIError(
+                    "The 'agent' project type is not available on this server.", 503)
+        elif type_id is None:
             raise DreamAgentAPIError(
-                f"Unknown project type '{project_type}'. Valid: {', '.join(sorted(PROJECT_TYPES))}.", 400)
+                f"Unknown project type '{project_type}'. Valid: {', '.join(sorted(k for k in PROJECT_TYPES if k != 'agent'))}.", 400)
 
         payload: dict = {"name": name[:30], "type_id": type_id}
         if description:

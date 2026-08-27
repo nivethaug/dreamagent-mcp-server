@@ -3,7 +3,7 @@
 DreamAgent MCP Server — standalone.
 
 Lets ChatGPT (or any MCP client) operate the user's DreamAgent account:
-create projects (Telegram/Discord bots, websites, schedulers), check their
+create projects (websites, Telegram/Discord bots, AI agents, automations), check their
 status, and edit them conversationally through DreamAgent's AI agent.
 
 Uses ONLY existing DreamAgent REST endpoints — the backend is never
@@ -62,7 +62,7 @@ mcp = FastMCP(
     "DreamAgent",
     instructions=(
         "Operate the user's DreamAgent account: build and deploy apps and bots "
-        "(websites, Telegram bots, Discord bots, schedulers) and edit them via "
+        "(websites, Telegram bots, Discord bots, AI agents) and edit them via "
         "DreamAgent's AI agent.\n\n"
         "HOW EDITS WORK — you only describe the CHANGE:\n"
         "DreamAgent's AI automatically handles code, tests, rebuild, "
@@ -310,7 +310,7 @@ def dreamagent_list_project_env(project_id: int) -> str:
     "what keys does my project have?".
 
     These are PROJECT-SPECIFIC variables — distinct from the user's
-    Global Integrations (dreamagent_list_global_integrations).
+    Global Integrations — API-key credentials and connected OAuth services (dreamagent_list_global_integrations).
 
     Args:
         project_id: the project to inspect.
