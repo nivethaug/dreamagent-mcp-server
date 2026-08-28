@@ -211,6 +211,15 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Listing global integrations")
         return resp.json()
 
+    def list_oauth_providers(self) -> list:
+        """OAuth providers + connected status (Nango-backed). Raises on
+        non-200 so callers can fail-soft when the feature is off."""
+        resp = self._request("GET", "/api/integrations/nango/providers")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Listing OAuth providers")
+        data = resp.json()
+        return data if isinstance(data, list) else data.get("providers", [])
+
     # ------------------------------------------------------------------
     # GET /projects/{id}/env — masked env vars + registry metadata
     # ------------------------------------------------------------------

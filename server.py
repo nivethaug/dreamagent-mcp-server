@@ -281,12 +281,34 @@ def dreamagent_list_global_integrations() -> str:
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
 
+    # Connected OAuth services (Nango) — agents can use these for
+    # YouTube, GitHub, Discord, Notion, X, Google Sheets, Slack actions
+    # without any credential ids. Fail-soft: empty when Nango is off.
+    oauth_connected: list[str] = []
+    try:
+        for p in client().list_oauth_providers():
+            if p.get("connected"):
+                oauth_connected.append(p.get("title") or p.get("provider", "?"))
+    except Exception:
+        pass
+
+    oauth_note = ""
+    if oauth_connected:
+        oauth_note = ("\n\nConnected OAuth services (usable by AI agents and "
+                      "projects, no credential id needed): "
+                      + ", ".join(sorted(oauth_connected)) + ".")
+    elif items:
+        oauth_note = ("\n\nNo OAuth services connected yet. Agents that need "
+                      "YouTube/GitHub/Discord/Notion/X/Sheets/Slack actions "
+                      "should direct the user to dreamagent.cloud → Integrations.")
+
     if not items:
-        return ("No saved credentials yet. The user must add them at "
+        base = ("No saved credentials yet. The user must add them at "
                 "dreamagent.cloud → Settings → Global Integrations "
                 "(one-time, verified, reusable). Tokens are never accepted "
                 "in chat — wait for them to save it, then call this tool again. "
                 "Help: https://dreamagent.cloud/help")
+        return base + oauth_note
     lines = []
     for gi in items:
         v = " ✓verified" if gi.get("verified") else ""
@@ -296,7 +318,7 @@ def dreamagent_list_global_integrations() -> str:
         )
     return ("\n".join(lines)
             + "\nUse these ids in dreamagent_create_project instead of asking "
-              "the user to paste tokens.")
+              "the user to paste tokens." + oauth_note)
 
 
 @mcp.tool(annotations=_READ_ONLY)
@@ -352,7 +374,7 @@ def dreamagent_create_project(
 ) -> str:
     """
     WRITE ACTION — creates a new DreamAgent project (website, Telegram
-    bot, Discord bot, or scheduler). Use ONLY when the user clearly asks
+    bot, Discord bot, or AI agent). Use ONLY when the user clearly asks
     to create/build a new project; not for questions about what to build.
 
     CONFIRM BEFORE CALLING — never create on the first mention. In ONE
@@ -434,18 +456,23 @@ def dreamagent_create_project(
     - Final Expectations
     - Prefer a compact command set; include /help where appropriate.
 
-    Scheduler:
-    - Job Purpose
-    - Data Sources
-    - Schedule
-    - Delivery Channels
-    - Message Format
-    - Final Expectations
-    - Use concrete schedules and specify failure/timeout behavior.
+    Agent (recurring/scheduled automation with OAuth actions):
+    - Purpose (what it monitors or automates)
+    - Data Sources (which connected OAuth services: YouTube, GitHub,
+      Discord, Notion, X, Google Sheets, Slack — or public APIs)
+    - Schedule (e.g., every 5 minutes / hourly / daily at 9am) and/or
+      Event Triggers (incoming webhook)
+    - Conditions (when to act — thresholds, keywords, state changes)
+    - Delivery Channels (Telegram, Discord, Slack, email — optional)
+    - Final Expectation
+    - Use concrete schedules; note that agents keep persistent state
+      between runs and can call any connected OAuth integration.
+    - Agents do NOT need a bot token unless they deliver via Telegram/
+      Discord (then a saved credential is required as for bots).
 
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
-        project_type: website / telegrambot / discordbot / scheduler.
+        project_type: website / telegrambot / discordbot / agent.
         bot_token_integration_id: REQUIRED for telegrambot & discordbot —
             saved-credential ID (see dreamagent_list_global_integrations).
         global_integration_ids: optional saved-key IDs to import as env vars.
