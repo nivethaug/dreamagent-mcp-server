@@ -287,8 +287,17 @@ def dreamagent_list_global_integrations() -> str:
     oauth_connected: list[str] = []
     try:
         for p in client().list_oauth_providers():
-            if p.get("connected"):
-                oauth_connected.append(p.get("title") or p.get("provider", "?"))
+            if not p.get("connected"):
+                continue
+            name = p.get("title") or p.get("provider", "?")
+            accounts = p.get("connected_accounts") or []
+            if len(accounts) > 1:
+                labels = ", ".join(
+                    f'"{a.get("label")}"' + (" (default)" if a.get("is_default") else "")
+                    for a in accounts)
+                oauth_connected.append(f"{name} — accounts: {labels}")
+            else:
+                oauth_connected.append(name)
     except Exception:
         pass
 
@@ -296,7 +305,9 @@ def dreamagent_list_global_integrations() -> str:
     if oauth_connected:
         oauth_note = ("\n\nConnected OAuth services (usable by AI agents and "
                       "projects, no credential id needed): "
-                      + ", ".join(sorted(oauth_connected)) + ".")
+                      + "; ".join(sorted(oauth_connected))
+                      + ". Providers listing multiple accounts: target one "
+                        "via the proxy's `account` parameter (label).")
     elif items:
         oauth_note = ("\n\nNo OAuth services connected yet. Agents that need "
                       "YouTube/GitHub/Discord/Notion/X/Sheets/Slack actions "
