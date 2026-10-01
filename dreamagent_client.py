@@ -274,6 +274,52 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Build & publish")
         return resp.json()
 
+    def upload_file(self, project_id: int, filename: str, content: bytes) -> dict:
+        """Upload a file to the project (goes to uploads/)."""
+        import httpx
+        url = f"{self.base_url}/projects/{project_id}/files/upload"
+        resp = httpx.post(
+            url,
+            files={"file": (filename, content)},
+            headers={"Authorization": f"Bearer {self._get_token()}"},
+            timeout=60)
+        if resp.status_code not in (200, 201):
+            raise DreamAgentAPIError(f"Upload failed: {resp.text[:200]}", resp.status_code)
+        return resp.json()
+
+    def submit_design_chat(self, project_id: int, message: str) -> dict:
+        """Submit a chat message in design mode."""
+        sessions = self.list_sessions(project_id)
+        ours = [s for s in sessions
+                if not s.get("archived") and (s.get("label") or "").strip().lower() == "chatgpt"]
+        if ours:
+            session_key = ours[0]["session_key"]
+        else:
+            session = self.create_session(project_id)
+            session_key = session["session_key"]
+        return self.submit_chat_with_mode(session_key, message, mode="design")
+
+    def submit_chat_with_mode(self, session_key: str, message: str, mode: str = "dream") -> dict:
+        """Submit chat with specific mode (dream/design)."""
+        import httpx, threading
+        payload = {
+            "session_key": session_key,
+            "messages": [{"role": "user", "content": message}],
+            "stream": True, "acp_mode": True, "mode": mode,
+        }
+        token = get_request_token() or self.auth.get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = httpx.post(
+            f"{self.base_url}/chat/stream", json=payload, headers=headers,
+            timeout=30)
+        if resp.status_code >= 400:
+            body = resp.text[:300]
+            raise DreamAgentAPIError(f"Chat submit failed: {body}", resp.status_code)
+        return {"session_key": session_key, "status": "submitted"}
+
+    def _get_token(self) -> str:
+        return get_request_token() or self.auth.get_token()
+
     def list_superpowers(self) -> list:
         """Superpowers catalog + per-tool enabled state (account-level)."""
         resp = self._request("GET", "/tools/me/tools")

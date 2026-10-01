@@ -613,6 +613,64 @@ def dreamagent_build_publish(project_id: int, confirm: bool = False) -> str:
 
 
 @mcp.tool(annotations=_WRITES_PROJECT)
+def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str,
+                           confirm: bool = False) -> str:
+    """
+    WRITE ACTION — redesign a website project's UI to match a design image.
+    Website projects only.
+
+    The user provides an image (screenshot, mockup, AI-generated design)
+    and instructions. You generate the image (e.g. DALL-E), encode it as
+    base64, and send it here. DreamAgent's AI will read the image and
+    redesign the project's frontend to match.
+
+    CONFIRM BEFORE CALLING — show the user:
+    1. The project being redesigned
+    2. The design instructions
+    Then call only with confirm=true after they agree.
+
+    Args:
+        project_id: the website project to redesign.
+        image_base64: base64-encoded design reference image (PNG/JPG).
+        instructions: what to change (e.g. "match this dark theme with purple accents",
+                      "make the hero section look like this", "use this layout").
+        confirm: must be true to execute.
+"""
+    try:
+        _bind_request_token()
+        gate = _require_paid()
+        if gate:
+            return gate
+        if not confirm:
+            return (
+                f"CONFIRMATION REQUIRED — redesign project {project_id} to match "
+                f"the provided design image. Instructions: {instructions[:200]}. "
+                "Call again with confirm=true after the user agrees.")
+        import base64 as b64
+        image_bytes = b64.b64decode(image_base64)
+        filename = f"design_ref_{project_id}.png"
+        c = client()
+        upload = c.upload_file(project_id, filename, image_bytes)
+        uploaded_path = upload.get("path") or f"uploads/{filename}"
+        design_message = (
+            f"Read the design reference image at {uploaded_path} and redesign "
+            f"the entire frontend UI to match it. Requirements: {instructions}. "
+            "Analyze the layout, colors, typography, spacing, and components in "
+            "the image. Apply the design across ALL pages. Rebuild and publish "
+            "when done.")
+        result = c.submit_chat_with_mode(project_id, design_message, mode="design")
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    return (
+        f"Design mode submitted for project {project_id}. The agent is reading "
+        f"the design reference and redesigning the UI. Poll "
+        f"dreamagent_get_edit_progress(project_id={project_id}) until done, "
+        "then check the live site.")
+
+
+@mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_create_project(
     name: str,
     project_type: str,
