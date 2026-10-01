@@ -240,6 +240,24 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Saving file")
         return resp.json()
 
+    def delete_file(self, project_id: int, file_path: str) -> dict:
+        import urllib.parse
+        encoded = urllib.parse.quote(file_path)
+        resp = self._request("DELETE", f"/projects/{project_id}/files/{encoded}")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Deleting file")
+        return resp.json()
+
+    def get_file_diff(self, project_id: int, file_path: str) -> dict:
+        import urllib.parse
+        encoded = urllib.parse.quote(file_path)
+        resp = self._request(
+            "GET", f"/projects/{project_id}/files/diff",
+            params={"path": file_path})
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Getting file diff")
+        return resp.json()
+
     def list_superpowers(self) -> list:
         """Superpowers catalog + per-tool enabled state (account-level)."""
         resp = self._request("GET", "/tools/me/tools")

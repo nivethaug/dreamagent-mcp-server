@@ -506,6 +506,49 @@ def dreamagent_write_file(project_id: int, file_path: str, content: str,
     return out
 
 
+@mcp.tool(annotations=_READ_ONLY)
+def dreamagent_get_file_diff(project_id: int, file_path: str) -> str:
+    """
+    Git diff of one project file against the last commit — shows the
+    pending (not yet live) changes. Free, read-only. Use after edits to
+    review exactly what changed before rebuilding.
+    """
+    try:
+        _bind_request_token()
+        d = client().get_file_diff(project_id, file_path)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    return f"Diff for '{d.get('path')}' vs last commit:\n{d.get('diff')}"
+
+
+@mcp.tool(annotations=_WRITES_PROJECT)
+def dreamagent_delete_file(project_id: int, file_path: str,
+                           confirm: bool = False) -> str:
+    """
+    WRITE ACTION — delete one source file from a DreamAgent project.
+    Hidden/credential files (.env, .git, keys) are rejected. Recoverable
+    via the project's git history.
+
+    CONFIRM BEFORE CALLING — tell the user which file will be deleted and
+    call only with confirm=true after they agree.
+    """
+    try:
+        _bind_request_token()
+        if not confirm:
+            return (f"CONFIRMATION REQUIRED — about to DELETE '{file_path}' in "
+                    f"project {project_id}. Call again with confirm=true after "
+                    "the user agrees.")
+        result = client().delete_file(project_id, file_path)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    return (f"Deleted '{file_path}' from project {project_id}. Recoverable via "
+            "git history. Rebuild to apply.")
+
+
 @mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_create_project(
     name: str,
