@@ -211,6 +211,35 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Listing global integrations")
         return resp.json()
 
+    # ------------------------------------------------------------------
+    # Project files (reuses the code-editor API — same guards, same
+    # worker proxying, same FileUtils hardening as the in-app editor).
+    # ------------------------------------------------------------------
+
+    def list_files(self, project_id: int) -> list:
+        resp = self._request("GET", f"/projects/{project_id}/files")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Listing project files")
+        return resp.json()
+
+    def read_file(self, project_id: int, file_path: str) -> dict:
+        import urllib.parse
+        encoded = urllib.parse.quote(file_path)
+        resp = self._request("GET", f"/projects/{project_id}/files/{encoded}")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Reading file")
+        return resp.json()
+
+    def save_file(self, project_id: int, file_path: str, content: str) -> dict:
+        import urllib.parse
+        encoded = urllib.parse.quote(file_path)
+        resp = self._request(
+            "PUT", f"/projects/{project_id}/files/{encoded}",
+            json_body={"content": content})
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Saving file")
+        return resp.json()
+
     def list_superpowers(self) -> list:
         """Superpowers catalog + per-tool enabled state (account-level)."""
         resp = self._request("GET", "/tools/me/tools")

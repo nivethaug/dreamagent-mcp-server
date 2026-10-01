@@ -415,6 +415,97 @@ def dreamagent_list_superpowers() -> str:
             + "\n".join(lines))
 
 
+@mcp.tool(annotations=_READ_ONLY)
+def dreamagent_list_files(project_id: int) -> str:
+    """
+    List the file tree of a DreamAgent project (source files only —
+    hidden files like .env are excluded). Use before reading or editing
+    a file to find the correct path.
+    """
+    try:
+        _bind_request_token()
+        tree = client().list_files(project_id)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+
+    lines = []
+    def walk(nodes, depth):
+        for n in nodes:
+            kind = 'dir ' if n.get('type') == 'folder' else 'file'
+            size = n.get('size')
+            lines.append(f"{'  ' * depth}[{kind}] {n['path']}" + (f" ({size}B)" if kind == 'file' and size is not None else ""))
+            if n.get('children'):
+                walk(n['children'], depth + 1)
+    walk(tree, 0)
+    if not lines:
+        return "No files found."
+    return f"Project {project_id} files:\n" + "\n".join(lines[:200])
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def dreamagent_read_file(project_id: int, file_path: str) -> str:
+    """
+    Read a source file from a DreamAgent project. file_path is the
+    project-relative path (from dreamagent_list_files), e.g.
+    "src/pages/Home.tsx" or "telegram/main.py". Hidden files (.env) and
+    binaries are not readable.
+    """
+    try:
+        _bind_request_token()
+        data = client().read_file(project_id, file_path)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    if data.get("is_binary"):
+        return f"'{file_path}' is a binary file ({data.get('size')} bytes) — content not shown."
+    content = data.get("content") or ""
+    return f"'{file_path}' ({data.get('size')} bytes):\n{content}"
+
+
+@mcp.tool(annotations=_WRITES_PROJECT)
+def dreamagent_write_file(project_id: int, file_path: str, content: str,
+                          confirm: bool = False) -> str:
+    """
+    WRITE ACTION — overwrite or create one source file in a DreamAgent
+    project with the exact content given. Changes go live after the
+    project is rebuilt (dreamagent_build_publish).
+
+    CONFIRM BEFORE CALLING — in ONE message show the user: the target
+    path and a summary of the change, then call only after they agree.
+    Never write on the first mention.
+
+    GUARDS (enforced server-side, the same as the in-app code editor):
+    path stays inside the project, hidden/credential files (.env, .git,
+    keys) are rejected, content is scanned for malware/shell signatures
+    and blocked, 2MB size cap. Failed scans return the reason.
+
+    The user can undo damage by editing in the DreamAgent editor, so a
+    wrong write is recoverable — still, prefer precise minimal diffs.
+    """
+    try:
+        _bind_request_token()
+        if not confirm:
+            return (
+                f"CONFIRMATION REQUIRED — about to overwrite '{file_path}' in "
+                f"project {project_id} with {len(content)} characters of new content. "
+                "Show the user the target path and the change summary, and only call "
+                "again with confirm=true after they agree.")
+        result = client().save_file(project_id, file_path, content)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    size = result.get('size', len(content))
+    out = (f"Saved '{file_path}' in project {project_id} ({size} bytes). "
+           "Changes are not live until the project is rebuilt — call "
+           "dreamagent_build_publish when the user is ready.")
+    # blocked writes come back inside the error path of save_file
+    return out
+
+
 @mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_create_project(
     name: str,
