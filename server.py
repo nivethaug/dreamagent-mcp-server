@@ -241,6 +241,8 @@ def dreamagent_list_projects(status: str | None = None) -> str:
         projects = client().list_projects(status)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     if not projects:
         return "No projects found." if not status else f"No projects with status '{status}'."
@@ -280,6 +282,8 @@ def dreamagent_list_global_integrations() -> str:
         items = client().list_global_integrations()
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     # Connected OAuth services (Nango) — agents can use these for
     # YouTube, GitHub, Discord, Notion, X, Google Sheets, Slack actions
@@ -353,6 +357,8 @@ def dreamagent_list_project_env(project_id: int) -> str:
         data = client().list_project_env(project_id)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     variables = data.get("variables") or []
     if not variables:
@@ -392,6 +398,8 @@ def dreamagent_list_superpowers() -> str:
         tools = client().list_superpowers()
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
     if not tools:
         return "No superpowers found."
     lines = []
@@ -539,6 +547,8 @@ def dreamagent_create_project(
                                     global_integration_ids)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     return (
         f"Project #{p.get('id')} \"{p.get('name')}\" ({project_type}) queued for creation. "
@@ -573,6 +583,8 @@ def dreamagent_get_project_status(project_id: int) -> str:
         s = client().get_project_status(project_id)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     status = s.get("status")
     if status == "ready":
@@ -655,6 +667,8 @@ def dreamagent_chat(project_id: int, message: str,
                     f"(session_key={session_key})")
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     return (
         f"Edit submitted to project {project_id} (session_key={session_key}). "
@@ -687,6 +701,8 @@ def dreamagent_list_sessions(project_id: int) -> str:
         sessions = client().list_sessions(project_id)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     if not sessions:
         return f"No sessions yet on project {project_id}. dreamagent_chat will create one."
@@ -717,6 +733,8 @@ def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
         s = client().create_session(project_id, label=label[:60])
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
     return (f"Session #{s.get('id')} \"{label}\" created — "
             f"session_key={s.get('session_key')}. Pass it to dreamagent_chat "
             f"to use this thread.")
@@ -743,6 +761,8 @@ def dreamagent_release_project_lock(project_id: int) -> str:
         r = client().release_project_lock(project_id)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
     return f"Lock released for project {project_id}: {r}"
 
 
@@ -783,6 +803,8 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
         local = c.local_chat_result(session_key)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     active = bool(status.get("active")) or bool(chunks.get("active"))
     new_text = "".join(chunks.get("chunks") or [])
@@ -865,6 +887,8 @@ def dreamagent_get_edit_progress(project_id: int) -> str:
         local = c.local_chat_result(session_key)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
 
     active = bool(status.get("active")) or bool(chunks.get("active"))
     run_status = chunks.get("status") or status.get("status")
@@ -926,6 +950,8 @@ def dreamagent_cancel_chat(session_key: str) -> str:
         r = client().cancel_chat(session_key)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry — if it persists, check dreamagent.cloud status."
     return f"Cancellation requested: {r.get('message', 'ok')}"
 
 
