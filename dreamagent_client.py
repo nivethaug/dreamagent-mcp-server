@@ -211,6 +211,13 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Listing global integrations")
         return resp.json()
 
+    def list_superpowers(self) -> list:
+        """Superpowers catalog + per-tool enabled state (account-level)."""
+        resp = self._request("GET", "/tools/me/tools")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Listing superpowers")
+        return resp.json().get("tools", [])
+
     def list_oauth_providers(self) -> list:
         """OAuth providers + connected status (Nango-backed). Raises on
         non-200 so callers can fail-soft when the feature is off."""

@@ -374,6 +374,39 @@ def dreamagent_list_project_env(project_id: int) -> str:
     return "\n".join(lines)
 
 
+@mcp.tool(annotations=_READ_ONLY)
+def dreamagent_list_superpowers() -> str:
+    """
+    List DreamAgent Superpowers — the account's ready-made AI tools
+    (song/video/image generation, voiceover, lip sync, voice clone,
+    transcription, media processing, PDF tools) with their enabled
+    state and beta pricing. Read-only; no credits consumed.
+
+    Use when the user asks what AI tools/superpowers are available,
+    whether a specific tool is enabled, or what they can add to a
+    project. Tools shown as enabled can be used from ANY of the
+    user's projects through dreamagent_chat (just ask in the message).
+    """
+    try:
+        _bind_request_token()
+        tools = client().list_superpowers()
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    if not tools:
+        return "No superpowers found."
+    lines = []
+    for t in tools:
+        state = "enabled" if t.get("enabled") else "disabled"
+        price = ""
+        if t.get("category") == "paid":
+            price = f" — {t.get('credit_cost_beta')} credits (beta) per {t.get('credit_unit', 'use')}"
+        avail = "" if t.get("available") else " [coming soon]"
+        lines.append(f"- {t['name']} ({state}{price}){avail}: {t['description']}")
+    enabled_count = sum(1 for t in tools if t.get("enabled"))
+    return (f"Superpowers ({enabled_count}/{len(tools)} enabled):\n"
+            + "\n".join(lines))
+
+
 @mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_create_project(
     name: str,
@@ -481,6 +514,15 @@ def dreamagent_create_project(
     - Agents do NOT need a bot token unless they deliver via Telegram/
       Discord (then a saved credential is required as for bots).
 
+    SUPERPOWERS: the account may have ready-made AI tools enabled
+    (song/video/image generation, voiceover, lip sync, voice clone,
+    transcription, media processing, PDF tools). If the requested
+    product clearly benefits from one (e.g. an AI song generator
+    website), reflect the FEATURE in the description — DreamAgent
+    wires the tool integration automatically at build time. Check
+    what is enabled with dreamagent_list_superpowers. Do NOT add
+    implementation details about how the tool is called.
+
     Args:
         name: project name (max 30 chars; a public subdomain is auto-generated).
         project_type: website / telegrambot / discordbot / agent.
@@ -577,6 +619,16 @@ def dreamagent_chat(project_id: int, message: str,
 
     ONE EDIT AT A TIME: never start another modification on the same
     project while one is running — check progress first and wait.
+
+    SUPERPOWERS: projects can use the account's enabled AI tools
+    (song/video/image generation, voiceover, lip sync, voice clone,
+    transcription, media processing, PDF tools). If the user asks to
+    add or use one ("add song generation", "generate an image feature"),
+    simply include that in the message — DreamAgent's agent knows the
+    enabled tools and wires the integration, UI and job handling
+    automatically. Check the catalog with dreamagent_list_superpowers;
+    if a tool is disabled, direct the user to dreamagent.cloud ->
+    Superpowers to enable it first.
 
     Args:
         project_id: the project to modify.
