@@ -216,6 +216,28 @@ def _err(e: Exception) -> str:
     return f"ERROR: {e}"
 
 
+FREE_PLAN_MSG = (
+    "ERROR: This MCP action is a Pro feature. File editing and publishing "
+    "via MCP are available on paid plans — upgrade at "
+    "https://dreamagent.cloud/pricing (free users can still read files and "
+    "use the in-app code editor)."
+)
+
+
+def _require_paid() -> str | None:
+    """Return FREE_PLAN_MSG when the connected account is on the free plan.
+
+    Call inside write/delete tools AFTER _bind_request_token(); returning
+    a non-None value means the action must be refused.
+    """
+    try:
+        return FREE_PLAN_MSG if client().get_plan_slug() == "free" else None
+    except Exception:
+        # Plan lookup failing must not block paying users — fail open;
+        # the downstream API still enforces ownership and credits.
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Tool 1 — list projects
 # ---------------------------------------------------------------------------
@@ -487,6 +509,9 @@ def dreamagent_write_file(project_id: int, file_path: str, content: str,
     """
     try:
         _bind_request_token()
+        gate = _require_paid()
+        if gate:
+            return gate
         if not confirm:
             return (
                 f"CONFIRMATION REQUIRED — about to overwrite '{file_path}' in "
@@ -536,6 +561,9 @@ def dreamagent_delete_file(project_id: int, file_path: str,
     """
     try:
         _bind_request_token()
+        gate = _require_paid()
+        if gate:
+            return gate
         if not confirm:
             return (f"CONFIRMATION REQUIRED — about to DELETE '{file_path}' in "
                     f"project {project_id}. Call again with confirm=true after "
@@ -547,6 +575,41 @@ def dreamagent_delete_file(project_id: int, file_path: str,
         return "ERROR: internal error. Please retry."
     return (f"Deleted '{file_path}' from project {project_id}. Recoverable via "
             "git history. Rebuild to apply.")
+
+
+@mcp.tool(annotations=_WRITES_PROJECT)
+def dreamagent_build_publish(project_id: int, confirm: bool = False) -> str:
+    """
+    WRITE ACTION — build & publish a DreamAgent project: rebuilds the
+    app from the current source files and pushes the new version live.
+    Use after finishing file edits (dreamagent_write_file) so the user's
+    changes go live. Pro/paid accounts only.
+
+    CONFIRM BEFORE CALLING — tell the user the project will be rebuilt
+    and redeployed, and call only with confirm=true after they agree.
+
+    ASYNCHRONOUS: kick-off returns immediately; check
+    dreamagent_get_project_status until the project reports 'ready'.
+    """
+    try:
+        _bind_request_token()
+        gate = _require_paid()
+        if gate:
+            return gate
+        if not confirm:
+            return (
+                f"CONFIRMATION REQUIRED — build & publish project {project_id}? "
+                "The current files will be rebuilt and pushed live. Call again "
+                "with confirm=true after the user agrees.")
+        result = client().build_publish(project_id)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    return (
+        f"Build & publish started for project {project_id}. Poll "
+        f"dreamagent_get_project_status(project_id={project_id}) until it "
+        "reports 'ready', then share the live URL.")
 
 
 @mcp.tool(annotations=_WRITES_PROJECT)

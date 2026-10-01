@@ -258,6 +258,22 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Getting file diff")
         return resp.json()
 
+    def get_plan_slug(self) -> str:
+        """User's subscription plan slug ('free', 'pro', ...)."""
+        resp = self._request("GET", "/api/billing/summary")
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Checking your plan")
+        return (resp.json().get("plan") or {}).get("slug", "free")
+
+    def build_publish(self, project_id: int) -> dict:
+        """Trigger build & publish for a project (long-running; poll status)."""
+        resp = self._request(
+            "POST", f"/projects/{project_id}/editor/build-publish",
+            json_body={}, timeout=600.0)
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Build & publish")
+        return resp.json()
+
     def list_superpowers(self) -> list:
         """Superpowers catalog + per-tool enabled state (account-level)."""
         resp = self._request("GET", "/tools/me/tools")
