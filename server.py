@@ -20,6 +20,7 @@ Config (env or .env):
 """
 
 import argparse
+import base64
 import logging
 import os
 import sys
@@ -32,7 +33,7 @@ except ImportError:
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
-from mcp.types import ToolAnnotations
+from mcp.types import ImageContent, TextContent, ToolAnnotations
 
 from auth import AuthManager, AuthError
 from dreamagent_client import DreamAgentClient, DreamAgentAPIError, PROJECT_TYPES
@@ -1260,13 +1261,15 @@ def _chromium_binary() -> str:
 
 
 @mcp.tool(annotations=_READ_ONLY)
-def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800) -> str:
+def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800):
     """WEBSITE PROJECTS ONLY — capture a screenshot of any public web page by URL.
 
     Renders the page with DreamAgent's server-side headless browser and
-    returns a public PNG URL you can view, embed, or compare. Use it to:
-    check a website project's live pages after edits or deploys, capture a
-    design reference the user points at, or verify a page renders correctly.
+    returns the PNG as an MCP image content block (for direct visual
+    inspection) PLUS a public URL you can view, embed, or compare. Use it
+    to: check a website project's live pages after edits or deploys, review
+    a layout for UX issues, capture a design reference the user points at,
+    or verify a page renders correctly.
 
     No project id needed — just the URL. Only public http(s) pages;
     private/internal hosts are rejected.
@@ -1277,8 +1280,11 @@ def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800
         height: viewport height 240-2160 (default 800)
 
     Returns:
-        Text with the public PNG URL (https://mcp.dreamagent.cloud/screenshots/...)
-        plus the local file path and byte size.
+        [text] capture info + public PNG URL
+        (https://mcp.dreamagent.cloud/screenshots/...), [image] the PNG
+        itself as base64 — vision-capable clients can inspect it directly.
+        Viewports whose PNG exceeds ~5 MB return the URL only (use a
+        smaller viewport for inline review).
 
     Errors:
         'ERROR: ...' for a bad/unreachable URL, a private target, a render
@@ -1328,9 +1334,21 @@ def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800
     with open(os.path.join(SCREENSHOT_DIR, name), "wb") as fh:
         fh.write(data)
     logger.info("screenshot %s -> %s (%d bytes)", url, name, len(data))
-    return (f"Screenshot saved ({width}x{height}, {len(data)} bytes).\n"
-            f"URL: {SCREENSHOT_PUBLIC_BASE}/screenshots/{name}\n"
+
+    public_url = f"{SCREENSHOT_PUBLIC_BASE}/screenshots/{name}"
+    text = (f"Screenshot saved ({width}x{height}, {len(data)} bytes).\n"
+            f"URL: {public_url}\n"
             f"File: {os.path.join(SCREENSHOT_DIR, name)}")
+
+    # Inline image block for vision-capable clients. Cap at ~5 MB encoded
+    # (OpenAI-style image input limits); bigger captures stay URL-only.
+    b64 = base64.b64encode(data).decode("ascii")
+    if len(b64) > 5 * 1024 * 1024:
+        text += ("\nNOTE: PNG too large for inline image content — "
+                 "use the URL above or retry with a smaller viewport.")
+        return text
+    return [TextContent(type="text", text=text),
+            ImageContent(type="image", data=b64, mimeType="image/png")]
 
 
 @mcp.custom_route("/screenshots/{name}", methods=["GET"])
