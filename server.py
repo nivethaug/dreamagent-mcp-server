@@ -1211,6 +1211,142 @@ def dreamagent_cancel_chat(session_key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Website screenshot — WEBSITE projects. Rendered by headless chromium on
+# THIS host (the server runs on the main VPS), saved under screenshots/ and
+# served back at /screenshots/<uuid>.png (unguessable names).
+# ---------------------------------------------------------------------------
+
+SCREENSHOT_DIR = os.getenv("SCREENSHOT_DIR") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "screenshots")
+SCREENSHOT_PUBLIC_BASE = os.getenv("SCREENSHOT_PUBLIC_BASE", "https://mcp.dreamagent.cloud").rstrip("/")
+
+
+def _public_http_url_or_raise(raw: str) -> None:
+    """SSRF guard: absolute http(s) URL resolving to PUBLIC space only."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    u = urlparse(raw or "")
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise ValueError("url must be an absolute http(s) URL")
+    host = u.hostname.strip().rstrip(".").lower()
+    if host == "localhost" or host.endswith((".local", ".internal")):
+        raise ValueError("local hostnames are not allowed")
+    if len(raw) > 2000:
+        raise ValueError("url too long")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError(f"cannot resolve host: {host}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast):
+            raise ValueError("private/internal targets are not allowed")
+
+
+def _chromium_binary() -> str:
+    import shutil
+    for b in ("/usr/bin/chromium", "/usr/bin/chromium-browser",
+              "/usr/bin/google-chrome"):
+        if os.path.isfile(b):
+            return b
+    found = shutil.which("chromium") or shutil.which("chromium-browser") \
+        or shutil.which("google-chrome")
+    if not found:
+        raise RuntimeError("no headless chromium/chrome binary on this host")
+    return found
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800) -> str:
+    """WEBSITE PROJECTS ONLY — capture a screenshot of any public web page by URL.
+
+    Renders the page with DreamAgent's server-side headless browser and
+    returns a public PNG URL you can view, embed, or compare. Use it to:
+    check a website project's live pages after edits or deploys, capture a
+    design reference the user points at, or verify a page renders correctly.
+
+    No project id needed — just the URL. Only public http(s) pages;
+    private/internal hosts are rejected.
+
+    Args:
+        url: absolute http(s) URL of the page to capture
+        width: viewport width 320-1920 (default 1280)
+        height: viewport height 240-2160 (default 800)
+
+    Returns:
+        Text with the public PNG URL (https://mcp.dreamagent.cloud/screenshots/...)
+        plus the local file path and byte size.
+
+    Errors:
+        'ERROR: ...' for a bad/unreachable URL, a private target, a render
+        timeout (45 s), or no chromium on the host. Pages that require login
+        or block bots may render blank or partially — try again or accept
+        the partial capture.
+    """
+    import subprocess
+    import tempfile
+    import uuid
+
+    try:
+        _public_http_url_or_raise(url.strip())
+    except ValueError as e:
+        return f"ERROR: {e}"
+
+    width = max(320, min(1920, int(width)))
+    height = max(240, min(2160, int(height)))
+
+    out = os.path.join(tempfile.gettempdir(), f"snap_{uuid.uuid4().hex}.png")
+    cmd = [
+        _chromium_binary(), "--headless=new", "--disable-gpu", "--no-sandbox",
+        "--hide-scrollbars", "--disable-dev-shm-usage",
+        f"--window-size={width},{height}",
+        "--virtual-time-budget=10000",  # let JS/layout settle before the shot
+        f"--screenshot={out}", url.strip(),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=45)
+    except Exception:
+        return "ERROR: screenshot timed out (45 s) — the page may be too heavy; retry once."
+    try:
+        if not os.path.isfile(out) or os.path.getsize(out) == 0:
+            detail = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace")[-250:]
+            return f"ERROR: browser produced no image. {detail}"
+        data = open(out, "rb").read()
+    finally:
+        try:
+            os.unlink(out)
+        except OSError:
+            pass
+    if len(data) > 15 * 1024 * 1024:
+        return "ERROR: screenshot too large (>15 MB) — reduce the viewport."
+
+    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+    name = f"{uuid.uuid4().hex}.png"
+    with open(os.path.join(SCREENSHOT_DIR, name), "wb") as fh:
+        fh.write(data)
+    logger.info("screenshot %s -> %s (%d bytes)", url, name, len(data))
+    return (f"Screenshot saved ({width}x{height}, {len(data)} bytes).\n"
+            f"URL: {SCREENSHOT_PUBLIC_BASE}/screenshots/{name}\n"
+            f"File: {os.path.join(SCREENSHOT_DIR, name)}")
+
+
+@mcp.custom_route("/screenshots/{name}", methods=["GET"])
+async def screenshot_endpoint(request):
+    from starlette.responses import FileResponse, JSONResponse
+    import re
+    name = request.path_params.get("name", "")
+    if not re.fullmatch(r"[0-9a-f]{32}\.png", name):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    path = os.path.join(SCREENSHOT_DIR, name)
+    if not os.path.isfile(path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(path, media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
