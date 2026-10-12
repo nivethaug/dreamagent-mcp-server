@@ -488,25 +488,56 @@ def dreamagent_read_file(project_id: int, file_path: str) -> str:
     return f"'{file_path}' ({data.get('size')} bytes):\n{content}"
 
 
+def _commit_project(project_id: int, message: str) -> str:
+    """Commit+push all pending changes of a project and record a system
+    entry in its 'ChatGPT' session history + version history (commit_log).
+    Never raises — returns a short status line instead."""
+    try:
+        c = client()
+        session = c.ensure_chatgpt_session(project_id)
+        session_id = int((session or {}).get("id"))
+        r = c.commit_and_push(project_id, session_id, message[:80])
+    except Exception as e:
+        detail = f" ({e})" if isinstance(e, (AuthError, DreamAgentAPIError)) else ""
+        return (f"COMMIT FAILED{detail} — the edit itself IS saved; retry with "
+                "dreamagent_commit_push.")
+    if not r.get("success"):
+        return (f"COMMIT FAILED ({r.get('error') or r.get('status')}) — the edit "
+                "itself IS saved; retry with dreamagent_commit_push.")
+    h = (r.get("commit_hash") or "")[:8]
+    where = "Recorded in session history & version history (restorable)."
+    if r.get("status") == "pushed":
+        return f"Committed {h} and pushed to GitHub. {where}"
+    return f"Committed {h} (push status: {r.get('status')}). {where}"
+
+
 @mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_write_file(project_id: int, file_path: str, content: str,
-                          confirm: bool = False) -> str:
+                          confirm: bool = False, auto_commit: bool = True) -> str:
     """
     WRITE ACTION — overwrite or create one source file in a DreamAgent
-    project with the exact content given. Changes go live after the
-    project is rebuilt (dreamagent_build_publish).
+    project with the exact content given. By default the write is
+    immediately committed and pushed to the project's GitHub repo and
+    recorded in its session history & version history (so the user can
+    restore/revert). Changes go live after the project is rebuilt
+    (dreamagent_build_publish).
 
     CONFIRM BEFORE CALLING — in ONE message show the user: the target
     path and a summary of the change, then call only after they agree.
     Never write on the first mention.
+
+    MULTI-FILE EDITS: pass auto_commit=false on each write, then call
+    dreamagent_commit_push once at the end — one commit and one history
+    entry for the whole batch.
 
     GUARDS (enforced server-side, the same as the in-app code editor):
     path stays inside the project, hidden/credential files (.env, .git,
     keys) are rejected, content is scanned for malware/shell signatures
     and blocked, 2MB size cap. Failed scans return the reason.
 
-    The user can undo damage by editing in the DreamAgent editor, so a
-    wrong write is recoverable — still, prefer precise minimal diffs.
+    The user can undo damage by editing in the DreamAgent editor or
+    restoring a previous version from version history — still, prefer
+    precise minimal diffs.
     """
     try:
         _bind_request_token()
@@ -528,6 +559,11 @@ def dreamagent_write_file(project_id: int, file_path: str, content: str,
     out = (f"Saved '{file_path}' in project {project_id} ({size} bytes). "
            "Changes are not live until the project is rebuilt — call "
            "dreamagent_build_publish when the user is ready.")
+    if auto_commit:
+        out += "\n" + _commit_project(project_id, f"MCP write: {file_path}")
+    else:
+        out += ("\nNot committed yet — finish the batch, then call "
+                "dreamagent_commit_push for one commit of everything.")
     # blocked writes come back inside the error path of save_file
     return out
 
@@ -551,11 +587,13 @@ def dreamagent_get_file_diff(project_id: int, file_path: str) -> str:
 
 @mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_delete_file(project_id: int, file_path: str,
-                           confirm: bool = False) -> str:
+                           confirm: bool = False, auto_commit: bool = True) -> str:
     """
     WRITE ACTION — delete one source file from a DreamAgent project.
-    Hidden/credential files (.env, .git, keys) are rejected. Recoverable
-    via the project's git history.
+    Hidden/credential files (.env, .git, keys) are rejected. By default the
+    deletion is immediately committed and pushed (so it is recorded in
+    session history & version history) — deleted files stay recoverable
+    via git history / version restore.
 
     CONFIRM BEFORE CALLING — tell the user which file will be deleted and
     call only with confirm=true after they agree.
@@ -574,8 +612,86 @@ def dreamagent_delete_file(project_id: int, file_path: str,
         return _err(e)
     except Exception:
         return "ERROR: internal error. Please retry."
-    return (f"Deleted '{file_path}' from project {project_id}. Recoverable via "
-            "git history. Rebuild to apply.")
+    out = (f"Deleted '{file_path}' from project {project_id}. Recoverable via "
+           "git history. Rebuild to apply.")
+    if auto_commit:
+        out += "\n" + _commit_project(project_id, f"MCP delete: {file_path}")
+    else:
+        out += ("\nNot committed yet — call dreamagent_commit_push when the "
+                "batch of edits is done.")
+    return out
+
+
+@mcp.tool(annotations=_WRITES_PROJECT)
+def dreamagent_commit_push(project_id: int, message: str = "",
+                           confirm: bool = False) -> str:
+    """
+    WRITE ACTION — commit ALL pending changes in a DreamAgent project and
+    push them to its private GitHub repo. The commit gets its own entry in
+    the project's session history and version history, so the user can
+    restore/revert to it in the DreamAgent dashboard.
+
+    Use it to (a) commit several MCP writes/deletes as ONE version — write
+    and delete with auto_commit=false first — or (b) retry a commit after a
+    failure. Chat-driven edits commit automatically; this tool is for
+    direct file changes made through MCP.
+
+    CONFIRM BEFORE CALLING — show the user what is pending (one
+    dreamagent_get_file_diff per touched file) and call only with
+    confirm=true after they agree.
+
+    Args:
+        project_id: project to commit
+        message: short commit message, e.g. "Add pricing page hero section"
+            (default "MCP edit: project <id>")
+        confirm: must be true to execute
+    """
+    try:
+        _bind_request_token()
+        gate = _require_paid()
+        if gate:
+            return gate
+        if not confirm:
+            return (f"CONFIRMATION REQUIRED — about to commit & push ALL pending "
+                    f"changes in project {project_id}. Show the user what changed "
+                    "(dreamagent_get_file_diff), then call again with confirm=true.")
+        note = _commit_project(project_id,
+                               message or f"MCP edit: project {project_id}")
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    return f"Project {project_id}: {note}"
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def dreamagent_list_commits(project_id: int, limit: int = 10) -> str:
+    """
+    Version history of a DreamAgent project — recent commits (hash,
+    message, status, timestamp) from its persistent commit log, newest
+    first. Use it to review what changed and when; the user can restore
+    any version from the DreamAgent dashboard version-history UI (mention
+    the short hash so they can find it).
+    """
+    try:
+        _bind_request_token()
+        data = client().list_commits(project_id, limit=max(1, min(50, int(limit))))
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except Exception:
+        return "ERROR: internal error. Please retry."
+    commits = data.get("commits") or []
+    if not commits:
+        return f"Project {project_id} has no commits yet."
+    lines = []
+    for c in commits:
+        msg = (c.get("commit_message") or "").splitlines()[0][:60]
+        when = (c.get("created_at") or "")[:16]
+        lines.append(f"{(c.get('commit_hash') or '')[:8]}  "
+                     f"[{c.get('commit_status')}]  {msg}  ({when})")
+    repo = data.get("repo_url") or "unknown repo"
+    return ("Version history for project {0} (newest first):\n{1}\nRepo: {2}"
+            .format(project_id, "\n".join(lines), repo))
 
 
 @mcp.tool(annotations=_WRITES_PROJECT)

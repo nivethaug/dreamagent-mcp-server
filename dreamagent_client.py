@@ -258,6 +258,25 @@ class DreamAgentClient:
             raise self._friendly_error(resp, "Getting file diff")
         return resp.json()
 
+    def commit_and_push(self, project_id: int, session_id: int, message: str) -> dict:
+        """Commit all pending changes, push to the project's GitHub repo, and
+        insert a mode='system' history entry into the session (server-side)."""
+        resp = self._request(
+            "POST", f"/projects/{project_id}/commits",
+            json_body={"session_id": session_id, "message": message,
+                       "auto_push": True, "system_message": True})
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Committing project changes")
+        return resp.json()
+
+    def list_commits(self, project_id: int, limit: int = 20) -> dict:
+        """Commit history from commit_log (version history; revertable)."""
+        resp = self._request(
+            "GET", f"/projects/{project_id}/commits", params={"limit": limit})
+        if resp.status_code != 200:
+            raise self._friendly_error(resp, "Listing commit history")
+        return resp.json()
+
     def get_plan_slug(self) -> str:
         """User's subscription plan slug ('free', 'pro', ...)."""
         resp = self._request("GET", "/api/billing/summary")
