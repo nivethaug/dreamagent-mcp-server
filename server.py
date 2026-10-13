@@ -512,12 +512,122 @@ def _commit_project(project_id: int, message: str) -> str:
     return f"Committed {h} (push status: {r.get('status')}). {where}"
 
 
+def _apply_edits(content: str, edits) -> tuple:
+    """Apply exact-match find→replace edits to a file's content.
+
+    Returns (new_content, notes). Raises ValueError with a precise message
+    when an edit cannot apply — the caller must not save in that case.
+    """
+    notes = []
+    for i, e in enumerate(edits, 1):
+        if not isinstance(e, dict):
+            raise ValueError(f"edit {i}: must be an object with find/replace")
+        find = e.get("find")
+        repl = e.get("replace", "")
+        replace_all = bool(e.get("all"))
+        if not isinstance(find, str) or not find:
+            raise ValueError(f"edit {i}: 'find' must be a non-empty string")
+        if not isinstance(repl, str):
+            raise ValueError(f"edit {i}: 'replace' must be a string")
+        if find == repl:
+            raise ValueError(f"edit {i}: 'find' and 'replace' are identical")
+        count = content.count(find)
+        if count == 0:
+            raise ValueError(
+                f"edit {i}: 'find' text NOT found in the file — copy it exactly "
+                "from a fresh dreamagent_read_file (whitespace and indentation "
+                "must match)")
+        if count > 1 and not replace_all:
+            raise ValueError(
+                f"edit {i}: 'find' text appears {count} times — include more "
+                "surrounding lines to make it unique, or set \"all\": true to "
+                "replace every occurrence")
+        content = content.replace(find, repl) if replace_all \
+            else content.replace(find, repl, 1)
+        notes.append(f"edit {i}: replaced {'all ' + str(count) if replace_all else '1'}"
+                     f" occurrence(s) ({len(find)} → {len(repl)} chars)")
+    return content, notes
+
+
+@mcp.tool(annotations=_WRITES_PROJECT)
+def dreamagent_edit_file(project_id: int, file_path: str, edits: list,
+                         confirm: bool = False, auto_commit: bool = True) -> str:
+    """
+    WRITE ACTION — make SMALL targeted changes to an EXISTING file in a
+    DreamAgent project via exact search/replace. PREFERRED over
+    dreamagent_write_file for editing existing files: you send only the
+    changed fragments (never the whole file) — cheaper, immune to payload
+    size/safety blocks in the calling client, and cannot corrupt unchanged
+    code. Use dreamagent_write_file only to CREATE files or for full rewrites.
+
+    Read the file first (dreamagent_read_file) and copy each 'find' text
+    EXACTLY as it appears — whitespace and indentation must match. All edits
+    are validated BEFORE anything is saved; if any 'find' fails to match,
+    the file is left untouched and the error tells you which edit and why.
+
+    CONFIRM BEFORE CALLING — show the user the target file and each planned
+    find→replace change, then call only with confirm=true.
+
+    Args:
+        project_id: project containing the file.
+        file_path: project-relative path of the EXISTING file to edit.
+        edits: list of edit objects:
+            {"find": "<exact existing text>",
+             "replace": "<new text>",
+             "all": false}   # optional: replace every occurrence
+        confirm: must be true to execute.
+        auto_commit: commit+push and record version history after saving
+            (default true; pass false to batch several edit_file calls and
+            finish with one dreamagent_commit_push).
+    """
+    try:
+        _bind_request_token()
+        gate = _require_paid()
+        if gate:
+            return gate
+        if not confirm:
+            n = len(edits) if isinstance(edits, list) else 0
+            return (f"CONFIRMATION REQUIRED — about to apply {n} edit(s) to "
+                    f"'{file_path}' in project {project_id}. Show the user each "
+                    "find→replace change, then call again with confirm=true.")
+        if not isinstance(edits, list) or not edits:
+            return "ERROR: edits must be a non-empty list of {find, replace} objects."
+        c = client()
+        data = c.read_file(project_id, file_path)
+        if data.get("is_binary"):
+            return f"ERROR: '{file_path}' is a binary file — cannot edit."
+        content = data.get("content") or ""
+        new_content, notes = _apply_edits(content, edits)
+        c.save_file(project_id, file_path, new_content)
+    except (AuthError, DreamAgentAPIError) as e:
+        return _err(e)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    except Exception as e:
+        logger.exception("edit_file failed for project %s", project_id)
+        return f"ERROR: {type(e).__name__}: {e}. Please retry."
+    size_before = len(content.encode("utf-8"))
+    size_after = len(new_content.encode("utf-8"))
+    out = (f"Edited '{file_path}' in project {project_id} — {len(notes)} edit(s) "
+           f"applied, {size_before} → {size_after} bytes:\n"
+           + "\n".join(f"- {n}" for n in notes))
+    if auto_commit:
+        out += "\n" + _commit_project(
+            project_id, f"MCP edit: {file_path} ({len(notes)} edits)")
+    else:
+        out += ("\nNot committed yet — call dreamagent_commit_push when the "
+                "batch is done.")
+    return out
+
+
 @mcp.tool(annotations=_WRITES_PROJECT)
 def dreamagent_write_file(project_id: int, file_path: str, content: str,
                           confirm: bool = False, auto_commit: bool = True) -> str:
     """
     WRITE ACTION — overwrite or create one source file in a DreamAgent
-    project with the exact content given. By default the write is
+    project with the exact content given. For CHANGING an existing file,
+    prefer dreamagent_edit_file (small targeted find→replace edits — no
+    need to send the whole file). By default the write is
     immediately committed and pushed to the project's GitHub repo and
     recorded in its session history & version history (so the user can
     restore/revert). Changes go live after the project is rebuilt
