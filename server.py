@@ -749,9 +749,13 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
 
     Args:
         project_id: the website project to redesign.
-        image_base64: base64-encoded design reference image (PNG/JPG).
-        instructions: what to change (e.g. "match this dark theme with purple accents",
-                      "make the hero section look like this", "use this layout").
+        image_base64: base64-encoded design reference image (PNG/JPG/WEBP).
+            Send the actual image bytes verbatim — the image IS the spec.
+        instructions: keep this SHORT — e.g. "Match this design image exactly."
+            The image carries the design; do NOT write a long textual design
+            spec duplicating what is visible in the image. Only add brief
+            must-have requirements the image cannot show (e.g. "keep all
+            existing pages and functionality", "Product Hunt view only").
         confirm: must be true to execute.
 """
     try:
