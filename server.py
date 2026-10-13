@@ -1510,8 +1510,13 @@ SCREENSHOT_DIR = os.getenv("SCREENSHOT_DIR") or os.path.join(
 SCREENSHOT_PUBLIC_BASE = os.getenv("SCREENSHOT_PUBLIC_BASE", "https://mcp.dreamagent.cloud").rstrip("/")
 
 
-def _public_http_url_or_raise(raw: str) -> None:
-    """SSRF guard: absolute http(s) URL resolving to PUBLIC space only."""
+def _public_http_url_or_raise(raw: str) -> str:
+    """SSRF guard: absolute http(s) URL resolving to PUBLIC space only.
+
+    Returns the validated hostname + its resolved public IPs so the caller
+    can pin them into the browser (DNS-rebinding protection: the check and
+    the fetch must use the SAME answer).
+    """
     import ipaddress
     import socket
     from urllib.parse import urlparse
@@ -1528,11 +1533,15 @@ def _public_http_url_or_raise(raw: str) -> None:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
         raise ValueError(f"cannot resolve host: {host}")
+    ips = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (ip.is_private or ip.is_loopback or ip.is_link_local
                 or ip.is_reserved or ip.is_multicast):
             raise ValueError("private/internal targets are not allowed")
+        if str(ip) not in ips:
+            ips.append(str(ip))
+    return host, ips
 
 
 def _chromium_binary() -> str:
@@ -1585,7 +1594,7 @@ def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800
     import uuid
 
     try:
-        _public_http_url_or_raise(url.strip())
+        host, ips = _public_http_url_or_raise(url.strip())
     except ValueError as e:
         return f"ERROR: {e}"
 
@@ -1593,9 +1602,15 @@ def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800
     height = max(240, min(2160, int(height)))
 
     out = os.path.join(tempfile.gettempdir(), f"snap_{uuid.uuid4().hex}.png")
+    # Pin the validated IPs into chromium: the SSRF check above resolved the
+    # host, and this makes the BROWSER use exactly those answers — a DNS
+    # rebinding attack (public IP at check time, internal IP at fetch time)
+    # cannot redirect the render at an internal service.
+    resolver_rules = ",".join(f"MAP {host} {ip}" for ip in ips)
     cmd = [
         _chromium_binary(), "--headless=new", "--disable-gpu", "--no-sandbox",
         "--hide-scrollbars", "--disable-dev-shm-usage",
+        f"--host-resolver-rules={resolver_rules}",
         f"--window-size={width},{height}",
         "--virtual-time-budget=10000",  # let JS/layout settle before the shot
         f"--screenshot={out}", url.strip(),
