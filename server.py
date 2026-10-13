@@ -1508,6 +1508,66 @@ def dreamagent_cancel_chat(session_key: str) -> str:
 SCREENSHOT_DIR = os.getenv("SCREENSHOT_DIR") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "screenshots")
 SCREENSHOT_PUBLIC_BASE = os.getenv("SCREENSHOT_PUBLIC_BASE", "https://mcp.dreamagent.cloud").rstrip("/")
+# Storage hygiene: screenshots are ephemeral artifacts (returned inline to
+# the caller AND served at unguessable URLs). The sweep below deletes them
+# after SCREENSHOT_TTL_HOURS (default 24) and keeps the directory under
+# SCREENSHOT_MAX_MB (default 200) by removing oldest first.
+SCREENSHOT_TTL_HOURS = max(1, int(os.getenv("SCREENSHOT_TTL_HOURS", "24")))
+SCREENSHOT_MAX_MB = max(10, int(os.getenv("SCREENSHOT_MAX_MB", "200")))
+
+
+def _sweep_screenshots() -> str:
+    """Delete expired screenshots (TTL) and enforce the directory size cap
+    (oldest first). Returns a short summary line; never raises."""
+    import time
+    try:
+        if not os.path.isdir(SCREENSHOT_DIR):
+            return ""
+        now = time.time()
+        ttl_s = SCREENSHOT_TTL_HOURS * 3600
+        max_bytes = SCREENSHOT_MAX_MB * 1024 * 1024
+        entries = []
+        for name in os.listdir(SCREENSHOT_DIR):
+            if not re.fullmatch(r"[0-9a-f]{32}\.png", name):
+                continue  # never touch anything that isn't ours
+            path = os.path.join(SCREENSHOT_DIR, name)
+            try:
+                st = os.stat(path)
+                entries.append((path, st.st_mtime, st.st_size))
+            except OSError:
+                continue
+        removed = freed = 0
+        kept = []
+        for path, mtime, size in entries:
+            if now - mtime > ttl_s:
+                try:
+                    os.unlink(path)
+                    removed += 1
+                    freed += size
+                except OSError:
+                    pass
+            else:
+                kept.append((path, mtime, size))
+        kept.sort(key=lambda e: e[1])  # oldest first
+        total = sum(s for _, _, s in kept)
+        for path, mtime, size in kept:
+            if total <= max_bytes:
+                break
+            try:
+                os.unlink(path)
+                removed += 1
+                freed += size
+                total -= size
+            except OSError:
+                pass
+        if removed:
+            logger.info("screenshot sweep: removed %d file(s), freed %.1f MB, dir now %.1f MB",
+                        removed, freed / 1e6, total / 1e6)
+            return (f" Cleanup: removed {removed} expired screenshot(s), "
+                    f"freed {freed / 1e6:.1f} MB.")
+        return ""
+    except Exception:
+        return ""
 
 
 def _public_http_url_or_raise(raw: str) -> str:
@@ -1637,11 +1697,14 @@ def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800
     with open(os.path.join(SCREENSHOT_DIR, name), "wb") as fh:
         fh.write(data)
     logger.info("screenshot %s -> %s (%d bytes)", url, name, len(data))
+    sweep_note = _sweep_screenshots()
 
     public_url = f"{SCREENSHOT_PUBLIC_BASE}/screenshots/{name}"
     text = (f"Screenshot saved ({width}x{height}, {len(data)} bytes).\n"
             f"URL: {public_url}\n"
             f"File: {os.path.join(SCREENSHOT_DIR, name)}")
+    if sweep_note:
+        text += "\n" + sweep_note.strip()
 
     # Inline image block for vision-capable clients. Cap at ~5 MB encoded
     # (OpenAI-style image input limits); bigger captures stay URL-only.
@@ -1678,6 +1741,9 @@ def main() -> int:
     parser.add_argument("--host", default=os.getenv("MCP_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("MCP_PORT", "8800")))
     args = parser.parse_args()
+
+    # Housekeeping: expire old screenshots even if no new captures come in.
+    _sweep_screenshots()
 
     # Local mode: env credentials exist -> verify them once at startup.
     # Hosted mode (no env credentials): every request authenticates with the
