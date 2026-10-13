@@ -764,7 +764,23 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
                 f"the provided design image. Instructions: {instructions[:200]}. "
                 "Call again with confirm=true after the user agrees.")
         import base64 as b64
-        image_bytes = b64.b64decode(image_base64)
+        payload = image_base64.strip()
+        if payload.startswith("data:"):        # tolerate data URI prefixes
+            payload = payload.split(",", 1)[-1]
+        payload = "".join(payload.split())      # tolerate whitespace/newlines
+        try:
+            image_bytes = b64.b64decode(payload + "=" * (-len(payload) % 4))
+        except Exception:
+            return ("ERROR: image_base64 is not valid base64 image data — pass "
+                    "the actual encoded bytes of the PNG/JPEG (not a file path).")
+        looks_binary = image_bytes[:8].startswith((b"\x89PNG", b"\xff\xd8", b"GIF8")) \
+            or (image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP")
+        if len(image_bytes) < 100 or (not looks_binary
+                                      and image_bytes[:200].isprintable()):
+            return ("ERROR: decoded image_base64 is not PNG/JPEG/WEBP image "
+                    "bytes — re-encode the actual image file contents and retry.")
+        if len(image_bytes) > 10 * 1024 * 1024:
+            return "ERROR: image too large (>10 MB) — use a smaller design reference."
         filename = f"design_ref_{project_id}.png"
         c = client()
         upload = c.upload_file(project_id, filename, image_bytes)
@@ -780,8 +796,9 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
         result = c.submit_design_chat(project_id, design_message)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
-    except Exception:
-        return "ERROR: internal error. Please retry."
+    except Exception as e:
+        logger.exception("design_mode failed for project %s", project_id)
+        return f"ERROR: {type(e).__name__}: {e}. Please retry."
     return (
         f"Design mode submitted for project {project_id}. The agent is reading "
         f"the design reference and redesigning the UI. Poll "
