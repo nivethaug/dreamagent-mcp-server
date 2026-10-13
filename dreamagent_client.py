@@ -319,8 +319,13 @@ class DreamAgentClient:
         return self.submit_chat_with_mode(session_key, message, mode="design")
 
     def submit_chat_with_mode(self, session_key: str, message: str, mode: str = "dream") -> dict:
-        """Submit chat with specific mode (dream/design)."""
-        import httpx, threading
+        """Submit chat with specific mode (dream/design).
+
+        Reads only the response STATUS. The SSE body streams the entire run —
+        draining it would block until the agent finishes (ReadTimeout). The
+        run keeps executing server-side once the 200 arrives.
+        """
+        import httpx
         payload = {
             "session_key": session_key,
             "messages": [{"role": "user", "content": message}],
@@ -328,12 +333,20 @@ class DreamAgentClient:
         }
         token = get_request_token() or self.auth.get_token()
         headers = {"Authorization": f"Bearer {token}"}
-        resp = httpx.post(
-            f"{self.base_url}/chat/stream", json=payload, headers=headers,
-            timeout=30)
-        if resp.status_code >= 400:
-            body = resp.text[:300]
-            raise DreamAgentAPIError(f"Chat submit failed: {body}", resp.status_code)
+        status = None
+        try:
+            with httpx.stream(
+                "POST", f"{self.base_url}/chat/stream", json=payload,
+                headers=headers, timeout=httpx.Timeout(20.0, connect=10.0),
+            ) as resp:
+                status = resp.status_code
+                if status >= 400:
+                    body = resp.read()[:300].decode("utf-8", "replace")
+                    raise DreamAgentAPIError(f"Chat submit failed: {body}", status)
+        except httpx.TimeoutException:
+            # No 4xx within the window — the run was accepted and is executing
+            # server-side (durable run); report it as unconfirmed.
+            return {"session_key": session_key, "status": "submitted_unconfirmed"}
         return {"session_key": session_key, "status": "submitted"}
 
     def _get_token(self) -> str:

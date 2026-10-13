@@ -23,6 +23,7 @@ import argparse
 import base64
 import logging
 import os
+import re
 import sys
 
 try:
@@ -784,10 +785,20 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
         filename = f"design_ref_{project_id}.png"
         c = client()
         upload = c.upload_file(project_id, filename, image_bytes)
-        uploaded_path = upload.get("path") or f"uploads/{filename}"
+        # The backend renames+converts uploads (design_ref_2043.png ->
+        # image_2043_<ts>.webp) and returns NO 'path' key — derive the real
+        # project-relative path so the agent can actually find the file.
+        rel = upload.get("path") or upload.get("relative_path")
+        if not rel:
+            cp = upload.get("container_path") or ""
+            m = re.search(rf"/{project_id}_[^/]+/(.+)$", cp)
+            rel = m.group(1) if m else (upload.get("url") or "").lstrip("/")
+        web_url = upload.get("url") or ""
         design_message = (
-            f"Read the design reference image at {uploaded_path} and redesign "
-            f"the entire frontend UI to match it. Requirements: {instructions}. "
+            f"Read the design reference image file at the project path {rel}"
+            + (f" (web URL: {web_url})" if web_url else "")
+            + f" and redesign the entire frontend UI to match it. Requirements: "
+            f"{instructions}. "
             "Analyze the layout, colors, typography, spacing, and components in "
             "the image. Apply the design across ALL pages. Rebuild and publish "
             "when done.")
@@ -799,11 +810,16 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
     except Exception as e:
         logger.exception("design_mode failed for project %s", project_id)
         return f"ERROR: {type(e).__name__}: {e}. Please retry."
-    return (
-        f"Design mode submitted for project {project_id}. The agent is reading "
-        f"the design reference and redesigning the UI. Poll "
-        f"dreamagent_get_edit_progress(project_id={project_id}) until done, "
-        "then check the live site.")
+    submitted = result.get("status") == "submitted"
+    head = ("Design mode submitted for project "
+            if submitted else
+            "Design mode likely submitted for project "
+            "(platform acknowledgement timed out — verify with progress): ")
+    tail = ("" if submitted else
+            " If no run is active, call this tool again.")
+    return (f"{head}{project_id}. The agent is reading the design reference and "
+            f"redesigning the UI. Poll dreamagent_get_edit_progress("
+            f"project_id={project_id}) until done, then check the live site.{tail}")
 
 
 @mcp.tool(annotations=_WRITES_PROJECT)
