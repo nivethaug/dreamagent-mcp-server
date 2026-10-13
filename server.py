@@ -773,20 +773,43 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
         if payload.startswith("data:"):        # tolerate data URI prefixes
             payload = payload.split(",", 1)[-1]
         payload = "".join(payload.split())      # tolerate whitespace/newlines
-        try:
-            image_bytes = b64.b64decode(payload + "=" * (-len(payload) % 4))
-        except Exception:
-            return ("ERROR: image_base64 is not valid base64 image data — pass "
-                    "the actual encoded bytes of the PNG/JPEG (not a file path).")
-        looks_binary = image_bytes[:8].startswith((b"\x89PNG", b"\xff\xd8", b"GIF8")) \
-            or (image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP")
-        if len(image_bytes) < 100 or (not looks_binary
-                                      and image_bytes[:200].isprintable()):
-            return ("ERROR: decoded image_base64 is not PNG/JPEG/WEBP image "
-                    "bytes — re-encode the actual image file contents and retry.")
-        if len(image_bytes) > 10 * 1024 * 1024:
+        raw, decode_err = None, None
+        for cand in (payload, payload.replace("-", "+").replace("_", "/")):
+            try:
+                raw = b64.b64decode(cand + "=" * (-len(cand) % 4))
+                break
+            except Exception as e:
+                decode_err = e
+        if raw is None:
+            logger.warning("design_mode p%s: base64 decode failed (%s); payload len=%d head=%.40s",
+                           project_id, decode_err, len(payload), payload[:40])
+            return (f"ERROR: image_base64 failed to decode ({decode_err}; payload "
+                    f"length {len(payload)} — a much shorter length than the original "
+                    "image suggests truncation; re-encode the file contents).")
+        # format detection (accept anything image-like; reject text/paths)
+        if raw[:8].startswith(b"\x89PNG"):
+            ext = "png"
+        elif raw[:3] == b"\xff\xd8\xff":
+            ext = "jpg"
+        elif raw[:4] == b"GIF8":
+            ext = "gif"
+        elif raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+            ext = "webp"
+        elif raw[4:8] == b"ftyp":               # AVIF/HEIC ISO-BMFF
+            ext = "img"
+        elif raw[:5] == b"<?xml" or raw.lstrip()[:4] == b"<svg":
+            ext = "svg"
+        elif not all(32 <= c < 127 or c in (9, 10, 13) for c in raw[:300]):
+            ext = "img"                          # unknown binary — let the backend scan it
+        else:
+            logger.warning("design_mode p%s: decoded payload is TEXT not image bytes (head=%.60s)",
+                           project_id, raw[:60])
+            return ("ERROR: image_base64 decoded to TEXT, not image bytes — read the "
+                    "image file and base64-encode its actual contents (never a path).")
+        if len(raw) > 10 * 1024 * 1024:
             return "ERROR: image too large (>10 MB) — use a smaller design reference."
-        filename = f"design_ref_{project_id}.png"
+        image_bytes = raw
+        filename = f"design_ref_{project_id}.{ext}"
         c = client()
         upload = c.upload_file(project_id, filename, image_bytes)
         # The backend renames+converts uploads (design_ref_2043.png ->
