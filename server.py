@@ -775,7 +775,9 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
             "Analyze the layout, colors, typography, spacing, and components in "
             "the image. Apply the design across ALL pages. Rebuild and publish "
             "when done.")
-        result = c.submit_chat_with_mode(project_id, design_message, mode="design")
+        # resolve OUR 'ChatGPT' session → string session_key (the chat API
+        # requires a string key; passing the raw project id fails validation)
+        result = c.submit_design_chat(project_id, design_message)
     except (AuthError, DreamAgentAPIError) as e:
         return _err(e)
     except Exception:
