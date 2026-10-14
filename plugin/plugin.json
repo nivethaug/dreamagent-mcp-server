@@ -1,0 +1,50 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "dreamagent",
+  "version": "1.1.0",
+  "description": "Build, edit, debug and deploy apps, Telegram bots, Discord bots and schedulers on DreamAgent — directly from chat.",
+  "author": {
+    "name": "DreamAgent",
+    "url": "https://dreamagent.cloud"
+  },
+  "homepage": "https://dreamagent.cloud",
+  "repository": "https://github.com/nivethaug/dreamagent-mcp-server",
+  "license": "MIT",
+  "keywords": [
+    "dreamagent",
+    "mcp",
+    "app-builder",
+    "telegram-bot",
+    "discord-bot",
+    "deployment",
+    "automation",
+    "website-builder"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "DreamAgent",
+        "shortDescription": "Build and deploy apps & bots from chat",
+        "longDescription": "Operate your DreamAgent account conversationally: create websites, Telegram bots, Discord bots and AI agents; watch them build and go live; then edit them with natural-language instructions ('add a /weather command', 'fix the login bug', 'restyle the dashboard'). Make precise file edits, commit and restore versions, capture live screenshots of any page, and let DreamAgent's AI agent handle the code, rebuild and redeploy automatically. Uses your plan's AI credits.",
+        "developerName": "DreamAgent",
+        "category": "productivity",
+        "capabilities": [
+          "Create projects (websites, Telegram/Discord bots, AI agents)",
+          "Track build and deployment status",
+          "Edit existing projects via natural-language instructions",
+          "Make targeted file edits with version history and restore",
+          "Capture live screenshots of any public page",
+          "Monitor edit progress and manage chat sessions"
+        ],
+        "websiteURL": "https://dreamagent.cloud",
+        "supportURL": "https://dreamagent.cloud/support",
+        "privacyPolicyURL": "https://dreamagent.cloud/privacy",
+        "termsOfServiceURL": "https://dreamagent.cloud/terms",
+        "defaultPrompt": ["Show my DreamAgent projects"],
+        "brandColor": "#6366F1",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      }
+    }
+  }
+}

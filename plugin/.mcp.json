@@ -1,6 +1,16 @@
 {
   "dreamagent": {
     "type": "streamable_http",
-    "url": "https://mcp.dreamagent.cloud/mcp"
+    "url": "https://mcp.dreamagent.cloud/mcp",
+    "extensions": {
+      "com.openai": {
+        "auth": {
+          "type": "oauth",
+          "client": {
+            "mode": "dcr"
+          }
+        }
+      }
+    }
   }
 }
