@@ -1592,15 +1592,21 @@ def _sweep_screenshots() -> str:
 
 
 def _public_http_url_or_raise(raw: str) -> str:
-    """SSRF guard: absolute http(s) URL resolving to PUBLIC space only.
+    """Guard for the screenshot tool: absolute http(s) URL resolving ONLY to
+    DreamAgent infrastructure (worker VPS = customer sites, main VPS =
+    platform). The host firewall enforces the same allowlist at the kernel
+    level (see run-mcp.sh + mcp-egress-block.service); this pre-check gives
+    callers a clear error instead of a browser failure page.
 
-    Returns the validated hostname + its resolved public IPs so the caller
-    can pin them into the browser (DNS-rebinding protection: the check and
-    the fetch must use the SAME answer).
+    Returns the validated hostname + its resolved public IPs.
     """
     import ipaddress
     import socket
     from urllib.parse import urlparse
+
+    allowed = {a.strip() for a in os.getenv(
+        "SCREENSHOT_ALLOWED_IPS",
+        "187.55.225.39 195.200.14.37").split() if a.strip()}
 
     u = urlparse(raw or "")
     if u.scheme not in ("http", "https") or not u.hostname:
@@ -1622,6 +1628,12 @@ def _public_http_url_or_raise(raw: str) -> str:
             raise ValueError("private/internal targets are not allowed")
         if str(ip) not in ips:
             ips.append(str(ip))
+    bad = [ip for ip in ips if ip not in allowed]
+    if bad:
+        raise ValueError(
+            "only DreamAgent-hosted sites can be captured (project domains "
+            "and dreamagent.cloud). This URL resolves outside DreamAgent "
+            f"infrastructure ({', '.join(bad)})")
     return host, ips
 
 
@@ -1640,14 +1652,13 @@ def _chromium_binary() -> str:
 
 @mcp.tool(title="Screenshot a website page", annotations=_READ_ONLY)
 def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800):
-    """WEBSITE PROJECTS ONLY — capture a screenshot of any public web page by URL.
-
-    Renders the page with DreamAgent's server-side headless browser and
-    returns the PNG as an MCP image content block (for direct visual
-    inspection) PLUS a public URL you can view, embed, or compare. Use it
-    to: check a website project's live pages after edits or deploys, review
-    a layout for UX issues, capture a design reference the user points at,
-    or verify a page renders correctly.
+    """WEBSITE PROJECTS ONLY — capture a screenshot of a DreamAgent-hosted
+    page by URL: a deployed project's domain (e.g. my-app.dreamagent.cloud
+    or a connected custom domain) or dreamagent.cloud itself. Best for
+    checking a project's live pages after edits or deploys and reviewing
+    layouts — returns the PNG as an MCP image content block PLUS a public
+    URL. Non-DreamAgent URLs are rejected (this is enforced both here and
+    by the host firewall).
 
     No project id needed — just the URL. Only public http(s) pages;
     private/internal hosts are rejected.
