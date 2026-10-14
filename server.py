@@ -967,6 +967,7 @@ def dreamagent_create_project(
     env_vars: dict | None = None,
     bot_token_integration_id: int | None = None,
     global_integration_ids: list | None = None,
+    confirm: bool = False,
 ) -> str:
     """
     WRITE ACTION — creates a new DreamAgent project (website, Telegram
@@ -1083,9 +1084,16 @@ def dreamagent_create_project(
         global_integration_ids: optional saved-key IDs to import as env vars.
         description: the build request (what + for whom + features/tone).
         env_vars: optional non-secret environment variables.
+        confirm: must be true to execute — the call is REJECTED without it.
 """
     try:
         _bind_request_token()
+        if not confirm:
+            return (
+                f"CONFIRMATION REQUIRED — about to CREATE project '{name}' "
+                f"({project_type}). Show the user the credential choice and the "
+                "final description, and call again with confirm=true only after "
+                "they explicitly agree.")
         p = client().create_project(name, project_type, description,
                                     env_vars, bot_token_integration_id,
                                     global_integration_ids)
@@ -1379,8 +1387,21 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
         return "\n".join(parts)
 
     if not active and local is None:
-        # Stream consumer ended/died but no local record — rely on chunks.
-        parts.append("done=true" if not chunks.get("active") else "active=true")
+        # Stream consumer ended/died with no local record — only claim done
+        # when the API reports a KNOWN terminal status. Anything else is
+        # genuinely unknown (e.g. after a server restart) and must not be
+        # reported as completion.
+        rs = (run_status or "").lower()
+        if rs == "completed":
+            parts.append("done=true (completed).")
+        elif rs in ("failed", "cancelled", "interrupted"):
+            parts.append(f"done=true — the run ended with status '{rs}'.")
+        else:
+            parts.append(
+                "status=unknown — no local stream record and no active run is "
+                "reported (this can happen after a server restart, or if the "
+                "run was never started). Do NOT assume completion — verify "
+                "with dreamagent_get_edit_progress.")
         return "\n".join(parts)
 
     parts.append("Still working — poll again with the same session_key and next_after.")

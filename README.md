@@ -176,6 +176,18 @@ python server.py              # stdio
 python server.py --http --port 8800   # remote MCP (put behind HTTPS)
 ```
 
+**System dependency — Chromium:** the `dreamagent_screenshot_website`
+tool renders pages with a system Chromium/Chrome binary (checked in order:
+`/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/usr/bin/google-chrome`,
+then `PATH`). `pip` does not install it — on Debian/Ubuntu:
+
+```bash
+apt-get install -y chromium          # or chromium-browser / google-chrome
+```
+
+Without it, every other tool works; the screenshot tool returns a clear
+"no headless chromium binary" error.
+
 Three modes of authentication, in priority order per request:
 
 1. `Authorization: Bearer da_...` header (OAuth clients / API clients)

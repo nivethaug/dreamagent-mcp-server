@@ -68,6 +68,10 @@ class DreamAgentClient:
         # Local best-effort store of finished chat jobs: {session_key: {...}}
         self.chat_results: dict = {}
         self._chat_lock = threading.Lock()
+        # One pooled HTTP client for the process lifetime — polling endpoints
+        # (status/chunks/files) make many sequential calls and reuse keeps
+        # TCP+TLS setup cost off every request. httpx.Client is thread-safe.
+        self._http = httpx.Client(timeout=DEFAULT_TIMEOUT)
 
     # ------------------------------------------------------------------
     # Core request helper (auto re-login once on 401)
@@ -85,11 +89,11 @@ class DreamAgentClient:
             token = self.auth.get_token()
         headers = {"Authorization": f"Bearer {token}"}
         try:
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.request(
-                    method, f"{self.base_url}{path}",
-                    headers=headers, json=json_body, params=params,
-                )
+            resp = self._http.request(
+                method, f"{self.base_url}{path}",
+                headers=headers, json=json_body, params=params,
+                timeout=timeout,
+            )
         except httpx.HTTPError as e:
             raise DreamAgentAPIError(f"Cannot reach DreamAgent API: {e}", 503)
 
@@ -160,8 +164,9 @@ class DreamAgentClient:
             # The agent type was seeded after the legacy SERIAL ids — resolve
             # its id from the /project-types API instead of hardcoding.
             with httpx.Client(timeout=10) as _tc:
-                _tr = _tc.get(f"{self.api_url}/project-types",
-                              headers=self._headers())
+                _tr = _tc.get(f"{self.base_url}/project-types",
+                              headers={"Authorization":
+                                       f"Bearer {self._get_token()}"})
             if _tr.status_code == 200:
                 _types = _tr.json()
                 if isinstance(_types, dict):
