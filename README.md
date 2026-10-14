@@ -176,6 +176,14 @@ python server.py              # stdio
 python server.py --http --port 8800   # remote MCP (put behind HTTPS)
 ```
 
+**Hardening on the production host:** the service runs under pm2 via
+`run-mcp.sh`, which joins the dedicated cgroup `dreamagent-mcp-egress`.
+Host firewall rules (`/usr/local/sbin/mcp-egress-rules.sh`, applied by the
+`mcp-egress-block.service` systemd unit) block NEW connections from that
+cgroup to all internal ranges (loopback/RFC1918/link-local/CGNAT/multicast,
+v4+v6) while allowing DNS and public traffic — so screenshots can never
+reach internal services, even through redirects or subresources.
+
 **System dependency — Chromium:** the `dreamagent_screenshot_website`
 tool renders pages with a system Chromium/Chrome binary (checked in order:
 `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/usr/bin/google-chrome`,
