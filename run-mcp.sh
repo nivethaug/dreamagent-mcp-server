@@ -8,9 +8,17 @@
 # pm2 usage:
 #   pm2 start run-mcp.sh --name dreamagent-mcp
 CG=/sys/fs/cgroup/dreamagent-mcp-egress
-mkdir -p "$CG" 2>/dev/null || true
-if ! echo $$ > "$CG/cgroup.procs" 2>/dev/null; then
-  echo "WARN: could not join cgroup $CG — egress rules inactive for this process" >&2
+if ! systemctl is-active --quiet mcp-egress-block.service; then
+  echo "ERROR: egress firewall service mcp-egress-block.service is not active; refusing to start" >&2
+  exit 1
+fi
+if [[ ! -d "$CG" || ! -w "$CG/cgroup.procs" ]]; then
+  echo "ERROR: required egress cgroup $CG is missing or not writable; refusing to start" >&2
+  exit 1
+fi
+if ! printf '%s\n' "$$" > "$CG/cgroup.procs" 2>/dev/null; then
+  echo "ERROR: could not join required egress cgroup $CG; refusing to start" >&2
+  exit 1
 fi
 cd "$(dirname "$0")"
 exec ./.venv/bin/python server.py --http --host 127.0.0.1 --port 8800

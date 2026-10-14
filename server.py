@@ -1700,6 +1700,11 @@ def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800
     # cannot redirect the render at an internal service.
     resolver_rules = ",".join(f"MAP {host} {ip}" for ip in ips)
     cmd = [
+        # --no-sandbox is required: the service runs as root (chromium refuses
+        # to start otherwise). Compensating controls: the process runs in the
+        # egress-blocked cgroup (run-mcp.sh + mcp-egress-block.service), so a
+        # sandbox escape still cannot reach anything but DreamAgent hosts.
+        # To drop this flag, first migrate the service to a non-root user.
         _chromium_binary(), "--headless=new", "--disable-gpu", "--no-sandbox",
         "--hide-scrollbars", "--disable-dev-shm-usage",
         f"--host-resolver-rules={resolver_rules}",
