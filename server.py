@@ -244,7 +244,7 @@ def _require_paid() -> str | None:
 # Tool 1 — list projects
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List DreamAgent projects", annotations=_READ_ONLY)
 def dreamagent_list_projects(status: str | None = None) -> str:
     """
     List the user's DreamAgent projects.
@@ -286,7 +286,7 @@ def dreamagent_list_projects(status: str | None = None) -> str:
 # Tool 2 — create project
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List connected integrations", annotations=_READ_ONLY)
 def dreamagent_list_global_integrations() -> str:
     """
     List the user's saved credentials (Global Integrations).
@@ -360,7 +360,7 @@ def dreamagent_list_global_integrations() -> str:
               "the user to paste tokens." + oauth_note)
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List project environment variables", annotations=_READ_ONLY)
 def dreamagent_list_project_env(project_id: int) -> str:
     """
     List a project's environment variables with their details.
@@ -404,7 +404,7 @@ def dreamagent_list_project_env(project_id: int) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List available superpowers", annotations=_READ_ONLY)
 def dreamagent_list_superpowers() -> str:
     """
     List DreamAgent Superpowers — the account's ready-made AI tools
@@ -439,7 +439,7 @@ def dreamagent_list_superpowers() -> str:
             + "\n".join(lines))
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List project files", annotations=_READ_ONLY)
 def dreamagent_list_files(project_id: int) -> str:
     """
     List the file tree of a DreamAgent project (source files only —
@@ -468,7 +468,7 @@ def dreamagent_list_files(project_id: int) -> str:
     return f"Project {project_id} files:\n" + "\n".join(lines[:200])
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="Read a project file", annotations=_READ_ONLY)
 def dreamagent_read_file(project_id: int, file_path: str) -> str:
     """
     Read a source file from a DreamAgent project. file_path is the
@@ -549,7 +549,7 @@ def _apply_edits(content: str, edits) -> tuple:
     return content, notes
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Edit a project file (find & replace)", annotations=_WRITES_PROJECT)
 def dreamagent_edit_file(project_id: int, file_path: str, edits: list,
                          confirm: bool = False, auto_commit: bool = True) -> str:
     """
@@ -620,7 +620,7 @@ def dreamagent_edit_file(project_id: int, file_path: str, edits: list,
     return out
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Write a project file", annotations=_WRITES_PROJECT)
 def dreamagent_write_file(project_id: int, file_path: str, content: str,
                           confirm: bool = False, auto_commit: bool = True) -> str:
     """
@@ -679,7 +679,7 @@ def dreamagent_write_file(project_id: int, file_path: str, content: str,
     return out
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="Show file changes vs last commit", annotations=_READ_ONLY)
 def dreamagent_get_file_diff(project_id: int, file_path: str) -> str:
     """
     Git diff of one project file against the last commit — shows the
@@ -696,7 +696,7 @@ def dreamagent_get_file_diff(project_id: int, file_path: str) -> str:
     return f"Diff for '{d.get('path')}' vs last commit:\n{d.get('diff')}"
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Delete a project file", annotations=_WRITES_PROJECT)
 def dreamagent_delete_file(project_id: int, file_path: str,
                            confirm: bool = False, auto_commit: bool = True) -> str:
     """
@@ -733,7 +733,7 @@ def dreamagent_delete_file(project_id: int, file_path: str,
     return out
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Commit and push project changes", annotations=_WRITES_PROJECT)
 def dreamagent_commit_push(project_id: int, message: str = "",
                            confirm: bool = False) -> str:
     """
@@ -775,7 +775,7 @@ def dreamagent_commit_push(project_id: int, message: str = "",
     return f"Project {project_id}: {note}"
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List project version history", annotations=_READ_ONLY)
 def dreamagent_list_commits(project_id: int, limit: int = 10) -> str:
     """
     Version history of a DreamAgent project — recent commits (hash,
@@ -805,7 +805,7 @@ def dreamagent_list_commits(project_id: int, limit: int = 10) -> str:
             .format(project_id, "\n".join(lines), repo))
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Build and publish project", annotations=_WRITES_PROJECT)
 def dreamagent_build_publish(project_id: int, confirm: bool = False) -> str:
     """
     WRITE ACTION — build & publish a DreamAgent project: rebuilds the
@@ -840,7 +840,7 @@ def dreamagent_build_publish(project_id: int, confirm: bool = False) -> str:
         "reports 'ready', then share the live URL.")
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Redesign UI from an image", annotations=_WRITES_PROJECT)
 def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str,
                            confirm: bool = False) -> str:
     """
@@ -959,7 +959,7 @@ def dreamagent_design_mode(project_id: int, image_base64: str, instructions: str
             f"project_id={project_id}) until done, then check the live site.{tail}")
 
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Create a new project", annotations=_WRITES_PROJECT)
 def dreamagent_create_project(
     name: str,
     project_type: str,
@@ -1105,7 +1105,7 @@ def dreamagent_create_project(
 # Tool 3 — project status
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="Get project status", annotations=_READ_ONLY)
 def dreamagent_get_project_status(project_id: int) -> str:
     """
     Check a project's creation/deployment state. Terminal states are
@@ -1145,7 +1145,7 @@ def dreamagent_get_project_status(project_id: int) -> str:
 # Tool 4 — chat (edit/build via the AI agent)
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_WRITES_PROJECT)
+@mcp.tool(title="Chat with the project agent", annotations=_WRITES_PROJECT)
 def dreamagent_chat(project_id: int, message: str,
                     session_key: str | None = None, new_session: bool = False) -> str:
     """
@@ -1226,7 +1226,7 @@ def dreamagent_chat(project_id: int, message: str,
 # Session management (mirrors the Telegram/Discord bot integrations)
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="List project chat sessions", annotations=_READ_ONLY)
 def dreamagent_list_sessions(project_id: int) -> str:
     """
     List a project's development sessions (conversation threads).
@@ -1260,7 +1260,7 @@ def dreamagent_list_sessions(project_id: int) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool(annotations=_WRITES_LOCAL)
+@mcp.tool(title="Create a chat session", annotations=_WRITES_LOCAL)
 def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
     """
     Create a new development session for a project — a separate
@@ -1284,7 +1284,7 @@ def dreamagent_create_session(project_id: int, label: str = "ChatGPT") -> str:
             f"to use this thread.")
 
 
-@mcp.tool(annotations=_WRITES_LOCAL)
+@mcp.tool(title="Release the project lock", annotations=_WRITES_LOCAL)
 def dreamagent_release_project_lock(project_id: int) -> str:
     """
     RECOVERY-ONLY — releases a project's editing lock when a stale or
@@ -1314,7 +1314,7 @@ def dreamagent_release_project_lock(project_id: int) -> str:
 # Tool 5 — chat status (poll)
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="Get chat status", annotations=_READ_ONLY)
 def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
     """
     Check the progress and final status of a specific AI development
@@ -1391,7 +1391,7 @@ def dreamagent_get_chat_status(session_key: str, after: int = 0) -> str:
 # Tool — edit progress by project (no session_key needed)
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="Get edit progress", annotations=_READ_ONLY)
 def dreamagent_get_edit_progress(project_id: int) -> str:
     """
     Check the latest AI edit progress for a project using its project
@@ -1473,7 +1473,7 @@ def dreamagent_get_edit_progress(project_id: int) -> str:
 # Tool 6 — cancel chat (safety valve)
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=_DESTRUCTIVE)
+@mcp.tool(title="Cancel the running chat", annotations=_DESTRUCTIVE)
 def dreamagent_cancel_chat(session_key: str) -> str:
     """
     DESTRUCTIVE — stops an AI edit that is currently running. Use ONLY
@@ -1617,7 +1617,7 @@ def _chromium_binary() -> str:
     return found
 
 
-@mcp.tool(annotations=_READ_ONLY)
+@mcp.tool(title="Screenshot a website page", annotations=_READ_ONLY)
 def dreamagent_screenshot_website(url: str, width: int = 1280, height: int = 800):
     """WEBSITE PROJECTS ONLY — capture a screenshot of any public web page by URL.
 
