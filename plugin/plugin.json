@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "dreamagent",
   "version": "1.1.0",
-  "description": "Build, edit, debug and deploy apps, Telegram bots, Discord bots and schedulers on DreamAgent — directly from chat.",
+  "description": "Build, edit, debug and deploy apps, Telegram bots, Discord bots and schedulers on DreamAgent - directly from chat.",
   "author": {
     "name": "DreamAgent",
     "url": "https://dreamagent.cloud"

@@ -8,7 +8,7 @@ Connect ChatGPT, Claude, or any MCP client to [DreamAgent](https://dreamagent.cl
 build websites, Telegram bots, Discord bots and schedulers from a conversation,
 watch them go live, then keep iterating.
 
-`streamable-http` · OAuth 2.1 + PKCE · 10 tools · Python / [FastMCP](https://gofastmcp.com)
+`streamable-http` · OAuth 2.1 + PKCE · 24 tools · Python / [FastMCP](https://gofastmcp.com)
 
 </div>
 
@@ -35,7 +35,7 @@ power to your AI chat, so:
 | Tool | What it does |
 |---|---|
 | `dreamagent_list_projects` | List your projects (id, type, status, domain) |
-| `dreamagent_create_project` | Create a website / Telegram bot / Discord bot / scheduler |
+| `dreamagent_create_project` | Create a website / Telegram bot / Discord bot / agent project |
 | `dreamagent_get_project_status` | Poll a build until `ready` / `failed` |
 | `dreamagent_chat` | Send a build/edit/debug instruction to the project's AI agent |
 | `dreamagent_get_chat_status` | Poll an edit run (incremental output) |
@@ -44,10 +44,26 @@ power to your AI chat, so:
 | `dreamagent_create_session` | Start a fresh topic thread |
 | `dreamagent_cancel_chat` | Cancel a running edit |
 | `dreamagent_release_project_lock` | Last-resort unlock (confirm first) |
+| `dreamagent_list_files` | List the project file tree |
+| `dreamagent_read_file` | Read one project source file |
+| `dreamagent_edit_file` | Targeted find → replace edits to an existing file (preferred for edits) |
+| `dreamagent_write_file` | Create / overwrite a file (confirm-gated, new files & full rewrites) |
+| `dreamagent_get_file_diff` | Pending changes vs last commit |
+| `dreamagent_delete_file` | Delete a file (confirm-gated) |
+| `dreamagent_commit_push` | Commit + push all pending changes as one version (or retry a failed commit) |
+| `dreamagent_list_commits` | Version history (hash, message, status) — restorable in the dashboard |
+| `dreamagent_build_publish` | Rebuild and publish the project (confirm-gated) |
+| `dreamagent_design_mode` | Upload a design image → agent redesigns the UI to match it |
+| `dreamagent_screenshot_website` | Screenshot any public page (returns the image + URL) |
+| `dreamagent_list_superpowers` | The project's AI tool catalog (song, image, video tools) |
+| `dreamagent_list_project_env` | Project env var names (values masked, secrets hidden) |
+| `dreamagent_list_global_integrations` | Which providers the account owner connected |
 
 Long operations are **submit-then-poll** — create → poll status, edit → poll
-progress. The agent handles code, tests, rebuild, redeploy and git commits by
-itself; prompts only describe the *change*.
+progress. Every file change is committed and pushed automatically, so each
+edit lands in session history and version history (restorable). The agent
+handles code, tests, rebuild, redeploy and git commits by itself; prompts
+only describe the *change*.
 
 ## Connect — ChatGPT
 
