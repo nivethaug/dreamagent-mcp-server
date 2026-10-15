@@ -984,6 +984,12 @@ def dreamagent_create_project(
        will submit it (this is the Prompt Assistant's recommendation
        summary). Call this tool only after the user confirms.
 
+    NOTE: this tool's schema includes a `confirm` parameter. If YOUR
+    client rejects a `confirm` field as "not allowed by the schema",
+    your cached tool list is STALE (the parameter exists server-side) —
+    tell the user to remove and re-add the DreamAgent connector, then
+    start a new chat.
+
     CREATION IS ASYNCHRONOUS: after calling, check
     dreamagent_get_project_status repeatedly until the project is
     'ready' or 'failed' (bots ~2-5 min, websites longer).
