@@ -150,6 +150,12 @@ async def openai_apps_challenge(_request):
 _client: DreamAgentClient | None = None
 _local_auth: AuthManager | None = None  # set only when env credentials exist
 
+# Repeat-call confirmations for dreamagent_create_project:
+# {(caller_key, request_fingerprint): first_attempt_ts} — a second identical
+# call within 5 minutes confirms, for clients whose cached schema predates
+# the `confirm` parameter.
+_PENDING_CREATES: dict = {}
+
 
 def client() -> DreamAgentClient:
     """Return the shared client.
@@ -1090,16 +1096,47 @@ def dreamagent_create_project(
         global_integration_ids: optional saved-key IDs to import as env vars.
         description: the build request (what + for whom + features/tone).
         env_vars: optional non-secret environment variables.
-        confirm: must be true to execute — the call is REJECTED without it.
+        confirm: must be true to execute — OR simply call the tool a
+            SECOND time with the exact same arguments within 5 minutes
+            (repeat-call confirmation). Either path confirms.
 """
+    import hashlib
+    import json as _json
+    import time as _time
+
+    def _req_fingerprint() -> str:
+        payload = _json.dumps(
+            {"name": name, "type": project_type, "desc": description,
+             "bot": bot_token_integration_id, "gi": global_integration_ids,
+             "env": env_vars or {}},
+            sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    def _caller_key() -> str:
+        tok = get_request_token() or (client().auth.email if client().auth else "")
+        return hashlib.sha256((tok or "anon").encode()).hexdigest()[:24]
+
+    global _PENDING_CREATES
     try:
         _bind_request_token()
-        if not confirm:
+        key = (_caller_key(), _req_fingerprint())
+        now = _time.time()
+        prior = _PENDING_CREATES.get(key, 0)
+        repeat_confirmed = (now - prior) <= 300 if prior else False
+        if not confirm and not repeat_confirmed:
+            _PENDING_CREATES[key] = now
+            # prune stale entries (bounded memory)
+            if len(_PENDING_CREATES) > 512:
+                cutoff = now - 300
+                _PENDING_CREATES = {k: v for k, v in _PENDING_CREATES.items() if v > cutoff}
             return (
                 f"CONFIRMATION REQUIRED — about to CREATE project '{name}' "
                 f"({project_type}). Show the user the credential choice and the "
-                "final description, and call again with confirm=true only after "
-                "they explicitly agree.")
+                "final description. To confirm, EITHER call again with "
+                "confirm=true, OR simply repeat this exact same call within 5 "
+                "minutes — the second identical call confirms automatically. "
+                "Only proceed after the user explicitly agrees.")
+        _PENDING_CREATES.pop(key, None)
         p = client().create_project(name, project_type, description,
                                     env_vars, bot_token_integration_id,
                                     global_integration_ids)
